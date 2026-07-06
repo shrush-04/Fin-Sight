@@ -1,0 +1,309 @@
+{% extends 'base.html' %}
+
+{% block title %}Expenses - FinSight{% endblock %}
+
+{% block header_title %}Transactions{% endblock %}
+{% block header_subtitle %}Track and manage your financial transactions{% endblock %}
+
+{% block content %}
+<div class="transactions-container animate-fade-in-up">
+    <!-- Top Action Row -->
+    <div class="action-bar">
+        <!-- Filter Form -->
+        <form method="GET" action="{{ url_for('expenses') }}" class="filter-form">
+            <div class="filter-group">
+                <label for="filter_type">Type</label>
+                <select name="type" id="filter_type" onchange="this.form.submit()">
+                    <option value="All" {% if filter_type == 'All' %}selected{% endif %}>All Types</option>
+                    <option value="Income" {% if filter_type == 'Income' %}selected{% endif %}>Income</option>
+                    <option value="Expense" {% if filter_type == 'Expense' %}selected{% endif %}>Expense</option>
+                </select>
+            </div>
+
+            <div class="filter-group">
+                <label for="filter_category">Category</label>
+                <select name="category_id" id="filter_category" onchange="this.form.submit()">
+                    <option value="All" {% if filter_category_str == 'All' %}selected{% endif %}>All Categories</option>
+                    {% for cat in categories %}
+                    <option value="{{ cat.id }}" {% if filter_category_str == cat.id|string %}selected{% endif %}>{{ cat.name }} ({{ cat.type }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="filter-group">
+                <label for="filter_month">Month</label>
+                <select name="month" id="filter_month" onchange="this.form.submit()">
+                    <option value="All" {% if filter_month == 'All' %}selected{% endif %}>All Months</option>
+                    {% for m in unique_months %}
+                    <option value="{{ m }}" {% if filter_month == m %}selected{% endif %}>{{ m }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            
+            {% if filter_type != 'All' or filter_category_str != 'All' or filter_month != 'All' %}
+            <a href="{{ url_for('expenses') }}" class="btn btn-secondary btn-icon-only" title="Clear Filters">
+                <i class="fa-solid fa-filter-circle-xmark"></i>
+            </a>
+            {% endif %}
+        </form>
+
+        <button onclick="toggleAddForm()" class="btn btn-primary">
+            <i class="fa-solid fa-plus"></i> Add Transaction
+        </button>
+    </div>
+
+    <!-- Add Transaction Card (Collapsible) -->
+    <div id="addTransactionCard" class="card collapsible-card collapsed animate-fade-in">
+        <div class="card-header">
+            <h3>Add New Transaction</h3>
+            <button class="btn btn-close" onclick="toggleAddForm()">&times;</button>
+        </div>
+        <form method="POST" action="{{ url_for('add_transaction') }}" class="transaction-form">
+            <div class="form-row">
+                <div class="form-group col-4">
+                    <label for="tx_type">Type</label>
+                    <select name="type" id="tx_type" onchange="updateCategoriesDropdown('tx_type', 'tx_category')" required>
+                        <option value="Expense">Expense</option>
+                        <option value="Income">Income</option>
+                    </select>
+                </div>
+                
+                <div class="form-group col-4">
+                    <label for="tx_category">Category</label>
+                    <select name="category_id" id="tx_category" required>
+                        <!-- Populated by JavaScript -->
+                    </select>
+                </div>
+
+                <div class="form-group col-4">
+                    <label for="tx_amount">Amount</label>
+                    <div class="input-wrapper">
+                        <span class="input-prefix">{{ g.user.currency }}</span>
+                        <input type="number" name="amount" id="tx_amount" min="0.01" step="any" required placeholder="0.00">
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group col-6">
+                    <label for="tx_date">Date</label>
+                    <input type="date" name="transaction_date" id="tx_date" value="{{ today_str }}" required>
+                </div>
+
+                <div class="form-group col-6">
+                    <label for="tx_payment_mode">Payment Mode</label>
+                    <select name="payment_mode" id="tx_payment_mode" required>
+                        <option value="UPI">UPI</option>
+                        <option value="Card">Card</option>
+                        <option value="Cash">Cash</option>
+                        <option value="Bank Transfer">Bank Transfer</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="tx_desc">Description</label>
+                <input type="text" name="description" id="tx_desc" placeholder="e.g. Weekly Groceries" maxlength="200">
+            </div>
+
+            <div class="form-actions">
+                <button type="button" onclick="toggleAddForm()" class="btn btn-secondary">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save Transaction</button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Transactions List Table -->
+    <div class="card table-card">
+        <div class="table-responsive">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Category</th>
+                        <th>Payment Mode</th>
+                        <th>Description</th>
+                        <th>Type</th>
+                        <th class="text-right">Amount</th>
+                        <th class="text-center">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% if transactions %}
+                        {% for tx in transactions %}
+                        <tr>
+                            <td class="date-cell">{{ tx.transaction_date.strftime('%b %d, %Y') }}</td>
+                            <td>
+                                <span class="category-badge {{ tx.type | lower }}">
+                                    {{ tx.category.name if tx.category else 'Others' }}
+                                </span>
+                            </td>
+                            <td><span class="paymode-badge">{{ tx.payment_mode }}</span></td>
+                            <td class="desc-cell">{{ tx.description or '-' }}</td>
+                            <td>
+                                <span class="type-indicator {{ tx.type | lower }}">
+                                    <i class="fa-solid {% if tx.type == 'Income' %}fa-arrow-trend-up{% else %}fa-arrow-trend-down{% endif %}"></i>
+                                    {{ tx.type }}
+                                </span>
+                            </td>
+                            <td class="text-right amount-cell {{ tx.type | lower }}">
+                                {% if tx.type == 'Income' %}+{% else %}-{% endif %}{{ g.user.currency }} {{ "%.2f"|format(tx.amount) }}
+                            </td>
+                            <td class="text-center actions-cell">
+                                <button onclick="openEditModal({{ tx.id }}, {{ tx.amount }}, {{ tx.category_id }}, '{{ tx.type }}', '{{ tx.transaction_date.strftime('%Y-%m-%d') }}', '{{ tx.description | escape }}', '{{ tx.payment_mode }}')" 
+                                        class="btn btn-icon btn-edit" title="Edit">
+                                    <i class="fa-regular fa-pen-to-square"></i>
+                                </button>
+                                <form method="POST" action="{{ url_for('delete_transaction', tx_id=tx.id) }}" style="display:inline;" onsubmit="return confirm('Are you sure you want to delete this transaction?')">
+                                    <button type="submit" class="btn btn-icon btn-delete" title="Delete">
+                                        <i class="fa-regular fa-trash-can"></i>
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    {% else %}
+                        <tr>
+                            <td colspan="7" class="text-center no-data">
+                                <i class="fa-regular fa-folder-open"></i>
+                                <p>No transactions found matching the filters.</p>
+                            </td>
+                        </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Transaction Modal -->
+<div id="editModal" class="modal-backdrop" style="display: none;">
+    <div class="modal-card animate-fade-in-up">
+        <div class="modal-header">
+            <h3>Edit Transaction</h3>
+            <button class="btn btn-close" onclick="closeEditModal()">&times;</button>
+        </div>
+        <form id="edit_tx_form" method="POST" action="" class="transaction-form">
+            <div class="form-row">
+                <div class="form-group col-4">
+                    <label for="edit_type">Type</label>
+                    <select name="type" id="edit_type" onchange="updateCategoriesDropdown('edit_type', 'edit_category_id')" required>
+                        <option value="Expense">Expense</option>
+                        <option value="Income">Income</option>
+                    </select>
+                </div>
+                
+                <div class="form-group col-4">
+                    <label for="edit_category_id">Category</label>
+                    <select name="category_id" id="edit_category_id" required>
+                        <!-- Populated by JavaScript -->
+                    </select>
+                </div>
+
+                <div class="form-group col-4">
+                    <label for="edit_amount">Amount</label>
+                    <div class="input-wrapper">
+                        <span class="input-prefix">{{ g.user.currency }}</span>
+                        <input type="number" name="amount" id="edit_amount" min="0.01" step="any" required placeholder="0.00">
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group col-6">
+                    <label for="edit_transaction_date">Date</label>
+                    <input type="date" name="transaction_date" id="edit_transaction_date" required>
+                </div>
+
+                <div class="form-group col-6">
+                    <label for="edit_payment_mode">Payment Mode</label>
+                    <select name="payment_mode" id="edit_payment_mode" required>
+                        <option value="UPI">UPI</option>
+                        <option value="Card">Card</option>
+                        <option value="Cash">Cash</option>
+                        <option value="Bank Transfer">Bank Transfer</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="edit_description">Description</label>
+                <input type="text" name="description" id="edit_description" placeholder="e.g. Weekly Groceries" maxlength="200">
+            </div>
+
+            <div class="form-actions">
+                <button type="button" onclick="closeEditModal()" class="btn btn-secondary">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save Changes</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Master category list parsed into JavaScript
+    const masterCategories = [
+        {% for cat in categories %}
+        { id: {{ cat.id }}, name: "{{ cat.name | escape }}", type: "{{ cat.type }}" },
+        {% endfor %}
+    ];
+
+    // Helper to update custom category lists depending on selected transaction type
+    function updateCategoriesDropdown(typeSelectId, categorySelectId, selectedCategoryId = null) {
+        const typeSelect = document.getElementById(typeSelectId);
+        const categorySelect = document.getElementById(categorySelectId);
+        const selectedType = typeSelect.value;
+        
+        // Clear existing options
+        categorySelect.innerHTML = '';
+        
+        // Filter and append corresponding options
+        const filtered = masterCategories.filter(cat => cat.type === selectedType);
+        filtered.forEach(cat => {
+            const opt = document.createElement('option');
+            opt.value = cat.id;
+            opt.textContent = cat.name;
+            if (selectedCategoryId && cat.id == selectedCategoryId) {
+                opt.selected = true;
+            }
+            categorySelect.appendChild(opt);
+        });
+    }
+
+    // Toggle add transaction collapsible card
+    function toggleAddForm() {
+        const card = document.getElementById('addTransactionCard');
+        if (card.classList.contains('collapsed')) {
+            card.classList.remove('collapsed');
+        } else {
+            card.classList.add('collapsed');
+        }
+    }
+
+    // Open transaction modal populated with existing record state
+    function openEditModal(id, amount, categoryId, type, date, description, paymentMode) {
+        document.getElementById('edit_tx_form').action = '/transactions/edit/' + id;
+        document.getElementById('edit_amount').value = amount;
+        document.getElementById('edit_type').value = type;
+        
+        // Rebuild dropdown to match correct type and select current category id
+        updateCategoriesDropdown('edit_type', 'edit_category_id', categoryId);
+        
+        document.getElementById('edit_transaction_date').value = date;
+        document.getElementById('edit_description').value = description;
+        document.getElementById('edit_payment_mode').value = paymentMode;
+        document.getElementById('editModal').style.display = 'flex';
+    }
+
+    // Close edit modal
+    function closeEditModal() {
+        document.getElementById('editModal').style.display = 'none';
+    }
+
+    // Initial update on load
+    document.addEventListener("DOMContentLoaded", function() {
+        updateCategoriesDropdown('tx_type', 'tx_category');
+    });
+</script>
+{% endblock %}

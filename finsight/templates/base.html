@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}FinSight{% endblock %} - Personal Finance</title>
+    <!-- Google Font Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Stylesheet -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <div class="app-container {% if not g.user %}auth-layout{% endif %}">
+        {% if g.user %}
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <span class="logo-icon"><i class="fa-solid fa-chart-line"></i></span>
+                    <span class="logo-text">FinSight</span>
+                </div>
+            </div>
+            
+            <nav class="sidebar-nav">
+                <a href="{{ url_for('dashboard') }}" class="nav-item {% if request.path == '/' %}active{% endif %}">
+                    <i class="fa-solid fa-square-poll-vertical"></i>
+                    <span>Dashboard</span>
+                </a>
+                <a href="{{ url_for('expenses') }}" class="nav-item {% if request.path == '/expenses' %}active{% endif %}">
+                    <i class="fa-solid fa-wallet"></i>
+                    <span>Expenses</span>
+                </a>
+                <a href="{{ url_for('budgets') }}" class="nav-item {% if request.path.startswith('/budgets') %}active{% endif %}">
+                    <i class="fa-solid fa-piggy-bank"></i>
+                    <span>Budgets</span>
+                </a>
+                <a href="{{ url_for('profile') }}" class="nav-item {% if request.path == '/profile' %}active{% endif %}">
+                    <i class="fa-solid fa-user-gear"></i>
+                    <span>Profile</span>
+                </a>
+            </nav>
+            
+            <div class="sidebar-footer">
+                <div class="user-pill">
+                    <div class="user-avatar">
+                        {{ g.user.name[0] | upper if g.user.name else 'U' }}
+                    </div>
+                    <div class="user-info">
+                        <span class="user-name">{{ g.user.name }}</span>
+                        <span class="user-currency">{{ g.user.currency }}</span>
+                    </div>
+                </div>
+                <a href="{{ url_for('logout') }}" class="logout-btn">
+                    <i class="fa-solid fa-right-from-bracket"></i>
+                    <span>Logout</span>
+                </a>
+            </div>
+        </aside>
+        {% endif %}
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            {% if g.user %}
+            <header class="main-header">
+                <div class="header-title">
+                    <h1>{% block header_title %}Dashboard{% endblock %}</h1>
+                    <p class="header-subtitle">{% block header_subtitle %}Welcome back, {{ g.user.name }}{% endblock %}</p>
+                </div>
+                <div class="header-actions">
+                    <span class="date-badge"><i class="fa-regular fa-calendar"></i> <span id="currentDate"></span></span>
+                </div>
+            </header>
+            {% endif %}
+
+            <div class="content-body">
+                <!-- Flash messages -->
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        <div class="flash-messages animate-fade-in">
+                            {% for category, message in messages %}
+                                <div class="alert alert-{{ category if category != 'error' else 'danger' }}">
+                                    <div class="alert-content">
+                                        <i class="fa-solid {% if category == 'success' %}fa-circle-check{% elif category == 'danger' %}fa-circle-exclamation{% else %}fa-circle-info{% endif %}"></i>
+                                        <span>{{ message }}</span>
+                                    </div>
+                                    <button class="alert-close" onclick="this.parentElement.remove()">&times;</button>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                {% endwith %}
+
+                {% block content %}{% endblock %}
+            </div>
+        </main>
+    </div>
+
+    <!-- Scripts -->
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script>
+        // Set dynamic date in header
+        const dateSpan = document.getElementById('currentDate');
+        if (dateSpan) {
+            const options = { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' };
+            dateSpan.textContent = new Date().toLocaleDateString('en-US', options);
+        }
+    </script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

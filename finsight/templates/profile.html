@@ -1,0 +1,63 @@
+{% extends 'base.html' %}
+
+{% block title %}Profile Settings - FinSight{% endblock %}
+
+{% block header_title %}Profile Settings{% endblock %}
+{% block header_subtitle %}Manage your personal details and currency settings{% endblock %}
+
+{% block content %}
+<div class="profile-container animate-fade-in-up">
+    <div class="card profile-card">
+        <div class="profile-header-summary">
+            <div class="profile-avatar-large">
+                {{ g.user.name[0] | upper if g.user.name else 'U' }}
+            </div>
+            <div class="profile-meta">
+                <h2>{{ g.user.name }}</h2>
+                <p class="profile-email">{{ g.user.email }}</p>
+                <span class="member-since">Member since {{ g.user.created_at.strftime('%B %Y') }}</span>
+            </div>
+        </div>
+
+        <hr class="divider">
+
+        <form method="POST" action="{{ url_for('profile') }}" class="profile-form">
+            <div class="form-group">
+                <label for="profile_name">Full Name</label>
+                <div class="input-wrapper">
+                    <i class="fa-regular fa-user input-icon"></i>
+                    <input type="text" id="profile_name" name="name" value="{{ g.user.name }}" required placeholder="John Doe">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group col-6">
+                    <label for="profile_income">Monthly Income</label>
+                    <div class="input-wrapper">
+                        <i class="fa-solid fa-coins input-icon"></i>
+                        <input type="number" id="profile_income" name="monthly_income" value="{{ g.user.monthly_income }}" required min="0" step="any">
+                    </div>
+                </div>
+
+                <div class="form-group col-6">
+                    <label for="profile_currency">Preferred Currency</label>
+                    <div class="input-wrapper">
+                        <i class="fa-solid fa-wallet input-icon"></i>
+                        <select id="profile_currency" name="currency" required>
+                            <option value="INR" {% if g.user.currency == 'INR' %}selected{% endif %}>INR (₹)</option>
+                            <option value="USD" {% if g.user.currency == 'USD' %}selected{% endif %}>USD ($)</option>
+                            <option value="EUR" {% if g.user.currency == 'EUR' %}selected{% endif %}>EUR (€)</option>
+                            <option value="GBP" {% if g.user.currency == 'GBP' %}selected{% endif %}>GBP (£)</option>
+                            <option value="JPY" {% if g.user.currency == 'JPY' %}selected{% endif %}>JPY (¥)</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-actions text-right">
+                <button type="submit" class="btn btn-primary">Save Profile Settings</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

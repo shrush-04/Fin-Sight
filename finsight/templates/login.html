@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+
+{% block title %}Login - FinSight{% endblock %}
+
+{% block content %}
+<div class="auth-container animate-fade-in-up">
+    <div class="auth-card">
+        <div class="auth-header">
+            <div class="logo logo-large">
+                <span class="logo-icon"><i class="fa-solid fa-chart-line"></i></span>
+                <span class="logo-text">FinSight</span>
+            </div>
+            <h2>Sign in to your account</h2>
+            <p>Enter your details below to access your financial dashboard.</p>
+        </div>
+        
+        <form method="POST" action="{{ url_for('login', next=request.args.get('next', '')) }}" class="auth-form">
+            <div class="form-group">
+                <label for="email">Email Address</label>
+                <div class="input-wrapper">
+                    <i class="fa-regular fa-envelope input-icon"></i>
+                    <input type="email" id="email" name="email" required placeholder="name@example.com" autocomplete="email">
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="password">Password</label>
+                <div class="input-wrapper">
+                    <i class="fa-solid fa-lock input-icon"></i>
+                    <input type="password" id="password" name="password" required placeholder="••••••••" autocomplete="current-password">
+                </div>
+            </div>
+            
+            <button type="submit" class="btn btn-primary btn-block">Sign In</button>
+        </form>
+        
+        <div class="auth-footer">
+            <p>Don't have an account? <a href="{{ url_for('register') }}">Sign up here</a></p>
+        </div>
+    </div>
+</div>
+{% endblock %}

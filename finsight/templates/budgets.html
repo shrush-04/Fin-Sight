@@ -1,0 +1,143 @@
+{% extends 'base.html' %}
+
+{% block title %}Budgets - FinSight{% endblock %}
+
+{% block header_title %}Monthly Budgets{% endblock %}
+{% block header_subtitle %}Manage spending limits across categories{% endblock %}
+
+{% block content %}
+<div class="budgets-container animate-fade-in-up">
+    <!-- Top Action Bar -->
+    <div class="action-bar">
+        <form method="GET" action="{{ url_for('budgets') }}" class="filter-form">
+            <div class="filter-group">
+                <label for="filter_month">Select Month</label>
+                <select name="month" id="filter_month" onchange="this.form.submit()">
+                    {% for bm in budget_months %}
+                    <option value="{{ bm }}" {% if filter_month == bm %}selected{% endif %}>{{ bm }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </form>
+
+        <button onclick="toggleAddForm()" class="btn btn-primary">
+            <i class="fa-solid fa-plus"></i> Set Budget
+        </button>
+    </div>
+
+    <!-- Set Budget Card (Collapsible) -->
+    <div id="addBudgetCard" class="card collapsible-card collapsed animate-fade-in">
+        <div class="card-header">
+            <h3>Set Category Budget Limit</h3>
+            <button class="btn btn-close" onclick="toggleAddForm()">&times;</button>
+        </div>
+        <form method="POST" action="{{ url_for('budgets') }}" class="budget-form">
+            <div class="form-row">
+                <div class="form-group col-4">
+                    <label for="budget_category">Category</label>
+                    <select name="category_id" id="budget_category" required>
+                        {% for cat in expense_categories %}
+                        <option value="{{ cat.id }}">{{ cat.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div class="form-group col-4">
+                    <label for="budget_month">Month</label>
+                    <input type="month" name="month" id="budget_month" value="{{ default_month }}" required>
+                </div>
+
+                <div class="form-group col-4">
+                    <label for="budget_amount">Budgeted Limit</label>
+                    <div class="input-wrapper">
+                        <span class="input-prefix">{{ g.user.currency }}</span>
+                        <input type="number" name="amount" id="budget_amount" min="0.01" step="any" required placeholder="0.00">
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-actions">
+                <button type="button" onclick="toggleAddForm()" class="btn btn-secondary">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save Budget</button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Budgets Display Grid -->
+    <div class="budgets-list-grid">
+        {% if budget_details %}
+            {% for detail in budget_details %}
+            <div class="card budget-card animate-fade-in">
+                <div class="budget-card-header">
+                    <div class="budget-info">
+                        <h3>{{ detail.category_name }}</h3>
+                        <span class="budget-month-label">{{ detail.budget.month }}</span>
+                    </div>
+                    <div class="budget-actions">
+                        <form method="POST" action="{{ url_for('delete_budget', budget_id=detail.budget.id) }}" onsubmit="return confirm('Are you sure you want to delete this budget?')">
+                            <button type="submit" class="btn btn-icon btn-delete" title="Delete Budget">
+                                <i class="fa-regular fa-trash-can"></i>
+                            </button>
+                        </form>
+                    </div>
+                </div>
+                
+                <div class="budget-card-body">
+                    <div class="budget-amounts">
+                        <div class="amount-spent">
+                            <span class="spent-value">{{ g.user.currency }} {{ "%.2f"|format(detail.spent) }}</span>
+                            <span class="label">Spent so far</span>
+                        </div>
+                        <div class="amount-limit">
+                            <span class="limit-value">{{ g.user.currency }} {{ "%.2f"|format(detail.budget.amount) }}</span>
+                            <span class="label">Budget limit</span>
+                        </div>
+                    </div>
+                    
+                    <div class="progress-wrapper">
+                        <div class="progress-bar-label">
+                            <span>Utilization</span>
+                            <span class="pct-value">{{ "%.1f"|format(detail.percentage) }}%</span>
+                        </div>
+                        <div class="progress-container">
+                            <div class="progress-bar {{ detail.status_color }}" 
+                                 data-width="{{ detail.percentage }}" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    
+                    {% if detail.percentage >= 100 %}
+                    <div class="budget-alert-badge danger">
+                        <i class="fa-solid fa-triangle-exclamation"></i> Over budget limit!
+                    </div>
+                    {% elif detail.percentage >= 80 %}
+                    <div class="budget-alert-badge warning">
+                        <i class="fa-solid fa-circle-exclamation"></i> Approaching budget limit (>80%)
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+            <div class="card no-data-card text-center">
+                <i class="fa-solid fa-piggy-bank"></i>
+                <h3>No budgets set for {{ filter_month }}</h3>
+                <p>Set a budget limit to monitor category-level expenses and control spending.</p>
+                <button onclick="toggleAddForm()" class="btn btn-primary btn-margin-top">Set a Budget</button>
+            </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function toggleAddForm() {
+        const card = document.getElementById('addBudgetCard');
+        if (card.classList.contains('collapsed')) {
+            card.classList.remove('collapsed');
+        } else {
+            card.classList.add('collapsed');
+        }
+    }
+</script>
+{% endblock %}

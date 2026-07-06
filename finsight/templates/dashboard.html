@@ -1,0 +1,161 @@
+{% extends 'base.html' %}
+
+{% block title %}Dashboard - FinSight{% endblock %}
+
+{% block header_title %}Financial Dashboard{% endblock %}
+{% block header_subtitle %}Overview of your finances for this month{% endblock %}
+
+{% block content %}
+<div class="dashboard-grid animate-fade-in-up">
+    <!-- Summary Cards -->
+    <div class="kpi-card income">
+        <div class="kpi-icon"><i class="fa-solid fa-arrow-trend-up"></i></div>
+        <div class="kpi-info">
+            <h3>Total Income</h3>
+            <div class="kpi-value-container">
+                <span class="currency">{{ g.user.currency }}</span>
+                <span class="kpi-value count-up" data-value="{{ "%.2f"|format(total_income) }}">0.00</span>
+            </div>
+            <p class="kpi-label">This Month</p>
+        </div>
+    </div>
+
+    <div class="kpi-card expense">
+        <div class="kpi-icon"><i class="fa-solid fa-arrow-trend-down"></i></div>
+        <div class="kpi-info">
+            <h3>Total Expenses</h3>
+            <div class="kpi-value-container">
+                <span class="currency">{{ g.user.currency }}</span>
+                <span class="kpi-value count-up" data-value="{{ "%.2f"|format(total_expenses) }}">0.00</span>
+            </div>
+            <p class="kpi-label">This Month</p>
+        </div>
+    </div>
+
+    <div class="kpi-card savings {% if total_savings >= 0 %}positive{% else %}negative{% endif %}">
+        <div class="kpi-icon">
+            {% if total_savings >= 0 %}
+            <i class="fa-solid fa-scale-balanced"></i>
+            {% else %}
+            <i class="fa-solid fa-triangle-exclamation"></i>
+            {% endif %}
+        </div>
+        <div class="kpi-info">
+            <h3>Net Savings</h3>
+            <div class="kpi-value-container">
+                <span class="currency">{{ g.user.currency }}</span>
+                <span class="kpi-value count-up" data-value="{{ "%.2f"|format(total_savings) }}">0.00</span>
+            </div>
+            <p class="kpi-label">This Month</p>
+        </div>
+    </div>
+
+    <div class="kpi-card budget-utilization">
+        <div class="kpi-icon"><i class="fa-solid fa-chart-pie"></i></div>
+        <div class="kpi-info">
+            <h3>Budget Utilization</h3>
+            <div class="kpi-value-container">
+                <span class="kpi-value count-up animate-pct" data-value="{{ "%.1f"|format(budget_utilization) }}">0</span><span class="pct">%</span>
+            </div>
+            <div class="progress-container">
+                <div class="progress-bar {% if budget_utilization >= 100 %}danger{% elif budget_utilization >= 80 %}warning{% else %}success{% endif %}" 
+                     data-width="{{ budget_utilization }}" style="width: 0%"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="charts-grid animate-fade-in-up delay-100">
+    <!-- Expense Breakdown Chart -->
+    <div class="chart-card donut-chart-card">
+        <h3>Expense Breakdown</h3>
+        <p class="chart-subtitle">By category for this month</p>
+        <div class="chart-container">
+            {% if total_expenses > 0 and donut_data %}
+            <canvas id="expenseDonutChart"></canvas>
+            {% else %}
+            <div class="no-chart-data">
+                <i class="fa-solid fa-receipt"></i>
+                <p>No monthly expenses logged yet</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Income vs Expense Trend Chart -->
+    <div class="chart-card line-chart-card">
+        <h3>Income vs Expenses Trend</h3>
+        <p class="chart-subtitle">Daily track over past 30 days</p>
+        <div class="chart-container">
+            <canvas id="trendLineChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Transactions Section -->
+<div class="dashboard-table-card animate-fade-in-up delay-200">
+    <div class="table-header">
+        <h3>Recent Transactions</h3>
+        <a href="{{ url_for('expenses') }}" class="btn btn-text">View All <i class="fa-solid fa-arrow-right"></i></a>
+    </div>
+    <div class="table-responsive">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Category</th>
+                    <th>Payment Mode</th>
+                    <th>Description</th>
+                    <th>Type</th>
+                    <th class="text-right">Amount</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if recent_transactions %}
+                    {% for tx in recent_transactions %}
+                    <tr>
+                        <td class="date-cell">{{ tx.transaction_date.strftime('%b %d, %Y') }}</td>
+                        <td>
+                            <span class="category-badge {{ tx.type | lower }}">
+                                {{ tx.category.name if tx.category else 'Others' }}
+                            </span>
+                        </td>
+                        <td><span class="paymode-badge">{{ tx.payment_mode }}</span></td>
+                        <td class="desc-cell">{{ tx.description or '-' }}</td>
+                        <td>
+                            <span class="type-indicator {{ tx.type | lower }}">
+                                <i class="fa-solid {% if tx.type == 'Income' %}fa-arrow-trend-up{% else %}fa-arrow-trend-down{% endif %}"></i>
+                                {{ tx.type }}
+                            </span>
+                        </td>
+                        <td class="text-right amount-cell {{ tx.type | lower }}">
+                            {% if tx.type == 'Income' %}+{% else %}-{% endif %}{{ g.user.currency }} {{ "%.2f"|format(tx.amount) }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="6" class="text-center no-data">
+                            <i class="fa-regular fa-folder-open"></i>
+                            <p>No recent transactions. Add some in the <a href="{{ url_for('expenses') }}">Expenses</a> page.</p>
+                        </td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<!-- Chart.js CDN -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    // Bind Backend lists to JS variables
+    const donutLabels = {{ donut_labels | tojson | safe }};
+    const donutData = {{ donut_data | tojson | safe }};
+    const lineLabels = {{ line_labels | tojson | safe }};
+    const lineIncomeData = {{ line_income_data | tojson | safe }};
+    const lineExpenseData = {{ line_expense_data | tojson | safe }};
+</script>
+{% endblock %}
