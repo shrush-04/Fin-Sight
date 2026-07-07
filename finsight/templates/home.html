@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FinSight - Personal Finance, Made Clear</title>
+    <!-- Google Font Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Stylesheet -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="landing-body">
+
+    <!-- Sticky Navbar -->
+    <nav class="landing-navbar" id="landingNavbar">
+        <div class="landing-navbar-container">
+            <a href="#" class="logo">
+                <span class="logo-icon"><i class="fa-solid fa-chart-line"></i></span>
+                <span class="logo-text">FinSight</span>
+            </a>
+            
+            <div class="hamburger-menu" id="hamburgerToggle">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+
+            <ul class="nav-links" id="navLinks">
+                <li><a href="#" class="nav-link active">Home</a></li>
+                <li><a href="#about" class="nav-link">About Us</a></li>
+                <li><a href="#why-finsight" class="nav-link">Why FinSight</a></li>
+                <li><a href="#how-it-works" class="nav-link">How It Works</a></li>
+                <li><a href="#contact" class="nav-link">Contact</a></li>
+                <li class="mobile-nav-actions">
+                    <a href="{{ url_for('login') }}" class="btn-login">Log in</a>
+                    <a href="{{ url_for('register') }}" class="btn-signup">Sign up</a>
+                </li>
+            </ul>
+
+            <div class="nav-actions">
+                <a href="{{ url_for('login') }}" class="btn-login">Log in</a>
+                <a href="{{ url_for('register') }}" class="btn-signup">Sign up</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Flash Messages (In case of auth redirects or alerts) -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <div class="flash-messages landing-flashes">
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category if category != 'error' else 'danger' }}">
+                        <div class="alert-content">
+                            <i class="fa-solid {% if category == 'success' %}fa-circle-check{% elif category == 'danger' %}fa-circle-exclamation{% else %}fa-circle-info{% endif %}"></i>
+                            <span>{{ message }}</span>
+                        </div>
+                        <button class="alert-close" onclick="this.parentElement.remove()">&times;</button>
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    {% endwith %}
+
+    <!-- Hero Section -->
+    <header class="hero-section" id="hero">
+        <div class="hero-container">
+            <div class="hero-content scroll-reveal">
+                <div class="hero-badge">
+                    <span>Personal finance, made clear</span>
+                </div>
+                <h1 class="hero-title">
+                    Understand your money.<br>Grow your future.
+                </h1>
+                <p class="hero-subtitle">
+                    A beautiful, minimal platform to track your expenses, define budget categories, monitor investments, and unlock smart insights.
+                </p>
+                <div class="hero-cta-group">
+                    <a href="{{ url_for('register') }}" class="btn btn-primary hero-btn">Get started</a>
+                    <a href="#how-it-works" class="btn btn-secondary hero-btn-secondary">See how it works</a>
+                </div>
+            </div>
+            <div class="hero-visual scroll-reveal delay-100">
+                <!-- Muted minimalist finance graphic -->
+                <svg viewBox="0 0 500 380" fill="none" xmlns="http://www.w3.org/2000/svg" class="minimal-graphic-svg">
+                    <!-- Background Grid Lines -->
+                    <line x1="50" y1="50" x2="450" y2="50" stroke="#EAE7E2" stroke-dasharray="4 4" />
+                    <line x1="50" y1="130" x2="450" y2="130" stroke="#EAE7E2" stroke-dasharray="4 4" />
+                    <line x1="50" y1="210" x2="450" y2="210" stroke="#EAE7E2" stroke-dasharray="4 4" />
+                    <line x1="50" y1="290" x2="450" y2="290" stroke="#EAE7E2" stroke-dasharray="4 4" />
+                    
+                    <!-- Graph Axes -->
+                    <line x1="50" y1="330" x2="450" y2="330" stroke="#EAE7E2" stroke-width="2" />
+                    <line x1="50" y1="50" x2="50" y2="330" stroke="#EAE7E2" stroke-width="2" />
+                    
+                    <!-- Area under curve (accent-light gradient preview) -->
+                    <path d="M 50 330 L 50 250 Q 130 190 190 220 T 310 120 T 450 60 L 450 330 Z" fill="#FCEFEA" opacity="0.6" />
+                    
+                    <!-- Trend Line -->
+                    <path d="M 50 250 Q 130 190 190 220 T 310 120 T 450 60" stroke="#D97757" stroke-width="4" stroke-linecap="round" />
+                    
+                    <!-- Interactive Nodes -->
+                    <circle cx="190" cy="220" r="6" fill="#D97757" stroke="#FAF9F6" stroke-width="2" />
+                    <circle cx="310" cy="120" r="6" fill="#D97757" stroke="#FAF9F6" stroke-width="2" />
+                    <circle cx="450" cy="60" r="8" fill="#D97757" stroke="#FAF9F6" stroke-width="3" />
+                    
+                    <!-- Bar Chart Blocks (Muted overlay) -->
+                    <rect x="90" y="270" width="28" height="60" rx="4" fill="#5F8F66" opacity="0.15" />
+                    <rect x="150" y="240" width="28" height="90" rx="4" fill="#5F8F66" opacity="0.15" />
+                    <rect x="230" y="200" width="28" height="130" rx="4" fill="#5F8F66" opacity="0.15" />
+                    <rect x="290" y="160" width="28" height="170" rx="4" fill="#5F8F66" opacity="0.15" />
+                    <rect x="370" y="110" width="28" height="220" rx="4" fill="#5F8F66" opacity="0.25" />
+                    
+                    <!-- Bar Chart Active / Accent Indicator -->
+                    <rect x="370" y="110" width="28" height="220" rx="4" stroke="#5F8F66" stroke-width="1.5" fill="none" />
+                </svg>
+            </div>
+        </div>
+    </header>
+
+    <!-- Stats Bar -->
+    <section class="stats-bar-section">
+        <div class="stats-container">
+            <div class="stat-item">
+                <span class="stat-number" data-target="10000" data-suffix="+">0</span>
+                <span class="stat-label">Users tracked</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-number" data-target="50" data-prefix="₹" data-suffix="Cr+">0</span>
+                <span class="stat-label">Expenses managed</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-number" data-target="4.8" data-decimals="1" data-suffix="/5">0</span>
+                <span class="stat-label">User rating</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-number" data-target="100" data-suffix="%">0</span>
+                <span class="stat-label">Secure & encrypted</span>
+            </div>
+        </div>
+    </section>
+
+    <!-- About Us Section -->
+    <section class="about-section scroll-reveal" id="about">
+        <div class="about-container">
+            <div class="section-header">
+                <span class="section-badge">About Us</span>
+                <h2 class="section-title">Bringing clarity to chaos</h2>
+            </div>
+            <div class="about-content">
+                <p>
+                    Managing multiple income sources, tracking daily expenses, supervising investments, and setting long-term financial goals is a complex challenge. FinSight was built to bring all of your financial telemetry into a single, unified view.
+                </p>
+                <p>
+                    We believe that personal finance shouldn't be chaotic or stressful, but rather clear, intuitive, and empowering. By centralizing your tracking, budgets, and savings goals, FinSight helps you make informed choices with confidence.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Why FinSight Section (Feature Cards) -->
+    <section class="features-section" id="why-finsight">
+        <div class="features-container">
+            <div class="section-header scroll-reveal">
+                <span class="section-badge">Why FinSight</span>
+                <h2 class="section-title">Everything you need to master your money</h2>
+            </div>
+            
+            <div class="features-grid">
+                <!-- Feature Card 1 -->
+                <div class="feature-card card scroll-reveal">
+                    <div class="feature-icon-wrapper">
+                        <i class="fa-solid fa-square-poll-vertical"></i>
+                    </div>
+                    <h3>All-in-one tracking</h3>
+                    <p>Track your daily expenses, log recurring income, and establish category budgets in a single central dashboard.</p>
+                </div>
+                
+                <!-- Feature Card 2 -->
+                <div class="feature-card card scroll-reveal delay-100">
+                    <div class="feature-icon-wrapper">
+                        <i class="fa-solid fa-chart-line"></i>
+                    </div>
+                    <h3>Investment visibility</h3>
+                    <p>Track your portfolio asset details, monitor historical returns, and build a clearer path to wealth generation.</p>
+                </div>
+                
+                <!-- Feature Card 3 -->
+                <div class="feature-card card scroll-reveal delay-200">
+                    <div class="feature-icon-wrapper">
+                        <i class="fa-solid fa-piggy-bank"></i>
+                    </div>
+                    <h3>Goal-driven planning</h3>
+                    <p>Set custom monthly savings targets, allocate funds to goals, and monitor progress bars dynamically.</p>
+                </div>
+                
+                <!-- Feature Card 4 -->
+                <div class="feature-card card scroll-reveal delay-100">
+                    <div class="feature-icon-wrapper">
+                        <i class="fa-solid fa-lightbulb"></i>
+                    </div>
+                    <h3>Smart insights</h3>
+                    <p>Receive spending analysis alerts, identify cost-cutting opportunities, and view category percentages instantly.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- How It Works Section -->
+    <section class="how-it-works-section" id="how-it-works">
+        <div class="how-it-works-container">
+            <div class="section-header scroll-reveal">
+                <span class="section-badge">How It Works</span>
+                <h2 class="section-title">Your path to financial peace in three steps</h2>
+            </div>
+            
+            <div class="steps-grid scroll-reveal">
+                <!-- Step 1 -->
+                <div class="step-card">
+                    <div class="step-number">1</div>
+                    <h3>Create your account</h3>
+                    <p>Sign up in seconds to set up your personal financial space and define your base monthly income.</p>
+                </div>
+                
+                <!-- Step 2 -->
+                <div class="step-card">
+                    <div class="step-number">2</div>
+                    <h3>Add transactions</h3>
+                    <p>Easily log your income and expenses under specific categories to represent your real-world finances.</p>
+                </div>
+                
+                <!-- Step 3 -->
+                <div class="step-card">
+                    <div class="step-number">3</div>
+                    <h3>Get smart insights</h3>
+                    <p>Monitor visual trend charts, stay within budget limits, and watch your financial savings grow over time.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Call to Action Section -->
+    <section class="cta-section scroll-reveal">
+        <div class="cta-container">
+            <h2>Start managing your money smarter today</h2>
+            <p>Join thousands of users tracking budgets, growing portfolios, and securing their financial freedom.</p>
+            <a href="{{ url_for('register') }}" class="btn btn-cta">Create free account</a>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="landing-footer" id="contact">
+        <div class="footer-container">
+            <div class="footer-brand-column">
+                <a href="#" class="logo">
+                    <span class="logo-icon"><i class="fa-solid fa-chart-line"></i></span>
+                    <span class="logo-text">FinSight</span>
+                </a>
+                <p class="footer-tagline">Personal finance, made clear.</p>
+            </div>
+            
+            <div class="footer-links-grid">
+                <div class="footer-column">
+                    <h4>Product</h4>
+                    <ul>
+                        <li><a href="{{ url_for('login') }}">Dashboard</a></li>
+                        <li><a href="{{ url_for('login') }}">Expenses</a></li>
+                        <li><a href="{{ url_for('login') }}">Budgets</a></li>
+                    </ul>
+                </div>
+                
+                <div class="footer-column">
+                    <h4>Company</h4>
+                    <ul>
+                        <li><a href="#about">About Us</a></li>
+                        <li><a href="#how-it-works">How It Works</a></li>
+                        <li><a href="#why-finsight">Why FinSight</a></li>
+                    </ul>
+                </div>
+                
+                <div class="footer-column">
+                    <h4>Contact</h4>
+                    <ul>
+                        <li class="contact-item"><i class="fa-regular fa-envelope"></i> contact@finsight.com</li>
+                        <li class="contact-item"><i class="fa-solid fa-phone"></i> +1 (555) 019-2834</li>
+                        <li class="contact-item"><i class="fa-solid fa-location-dot"></i> Bengaluru, KA, India</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        
+        <div class="footer-bottom">
+            <p>&copy; 2026 FinSight. Built as part of a personal finance platform project.</p>
+        </div>
+    </footer>
+
+    <!-- Scripts -->
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>

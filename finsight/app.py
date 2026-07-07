@@ -152,6 +152,14 @@ def logout():
 # --- MAIN PLATFORM ROUTES ---
 
 @app.route('/')
+def home():
+    """Renders the landing page if not logged in, or redirects to the dashboard."""
+    if 'user_id' in session and g.user:
+        return redirect(url_for('dashboard'))
+    return render_template('home.html')
+
+
+@app.route('/dashboard')
 @login_required
 def dashboard():
     """Main Financial Dashboard presenting monthly insights, Chart.js metrics, and recent activity."""

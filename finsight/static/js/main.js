@@ -177,4 +177,144 @@ document.addEventListener("DOMContentLoaded", () => {
     animateCountUp();
     animateProgressBars();
     initializeCharts();
+    initializeLandingPage();
 });
+
+/**
+ * Landing Page Interactive UI Logic
+ */
+function initializeLandingPage() {
+    // 1. Sticky Navbar Scroll State
+    const navbar = document.getElementById('landingNavbar');
+    if (navbar) {
+        const toggleScrolled = () => {
+            if (window.scrollY > 20) {
+                navbar.classList.add('scrolled');
+            } else {
+                navbar.classList.remove('scrolled');
+            }
+        };
+        window.addEventListener('scroll', toggleScrolled);
+        toggleScrolled(); // Initial check on load
+    }
+
+    // 2. Hamburger Mobile Navigation Toggle
+    const hamburger = document.getElementById('hamburgerToggle');
+    const navLinks = document.getElementById('navLinks');
+    if (hamburger && navLinks) {
+        hamburger.addEventListener('click', () => {
+            hamburger.classList.toggle('active');
+            navLinks.classList.toggle('active');
+            
+            const spans = hamburger.querySelectorAll('span');
+            if (hamburger.classList.contains('active')) {
+                spans[0].style.transform = 'rotate(45deg) translate(5px, 5px)';
+                spans[1].style.opacity = '0';
+                spans[2].style.transform = 'rotate(-45deg) translate(5px, -5px)';
+            } else {
+                spans[0].style.transform = 'none';
+                spans[1].style.opacity = '1';
+                spans[2].style.transform = 'none';
+            }
+        });
+
+        // Auto-close menu when clicking a link
+        navLinks.querySelectorAll('a').forEach(link => {
+            link.addEventListener('click', () => {
+                hamburger.classList.remove('active');
+                navLinks.classList.remove('active');
+                
+                const spans = hamburger.querySelectorAll('span');
+                spans[0].style.transform = 'none';
+                spans[1].style.opacity = '1';
+                spans[2].style.transform = 'none';
+            });
+        });
+    }
+
+    // 3. Scroll Reveal (Fade-in + Slide-up)
+    const revealElements = document.querySelectorAll('.scroll-reveal');
+    if (revealElements.length > 0) {
+        const revealObserver = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('active');
+                    revealObserver.unobserve(entry.target);
+                }
+            });
+        }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+        revealElements.forEach(el => revealObserver.observe(el));
+    }
+
+    // 4. Stats Counter Intersection Trigger
+    const statsSection = document.querySelector('.stats-bar-section');
+    if (statsSection) {
+        const observer = new IntersectionObserver((entries, obs) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    animateLandingStats();
+                    obs.unobserve(entry.target);
+                }
+            });
+        }, { threshold: 0.15 });
+        observer.observe(statsSection);
+    }
+
+    // 5. Active Navbar Links Highlighting on Scroll
+    const sections = document.querySelectorAll('header[id], section[id], footer[id]');
+    const navItems = document.querySelectorAll('.nav-link');
+    if (sections.length > 0 && navItems.length > 0) {
+        window.addEventListener('scroll', () => {
+            let currentSectionId = '';
+            sections.forEach(sec => {
+                const sectionTop = sec.offsetTop;
+                if (window.scrollY >= sectionTop - 160) {
+                    currentSectionId = sec.getAttribute('id');
+                }
+            });
+
+            if (currentSectionId) {
+                navItems.forEach(item => {
+                    item.classList.remove('active');
+                    const href = item.getAttribute('href');
+                    if (href === '#' && currentSectionId === 'hero') {
+                        item.classList.add('active');
+                    } else if (href === '#' + currentSectionId) {
+                        item.classList.add('active');
+                    }
+                });
+            }
+        });
+    }
+}
+
+/**
+ * Animates integer and decimal values for the stats numbers
+ */
+function animateLandingStats() {
+    const stats = document.querySelectorAll('.stat-number');
+    stats.forEach(el => {
+        const target = parseFloat(el.getAttribute('data-target'));
+        const prefix = el.getAttribute('data-prefix') || '';
+        const suffix = el.getAttribute('data-suffix') || '';
+        const decimals = parseInt(el.getAttribute('data-decimals') || '0', 10);
+        if (isNaN(target)) return;
+
+        const duration = 1200; // Animation length in ms
+        const frameRate = 1000 / 60; // 60 Frames per second
+        const totalFrames = Math.round(duration / frameRate);
+        let frame = 0;
+        const increment = target / totalFrames;
+
+        const interval = setInterval(() => {
+            frame++;
+            const current = increment * frame;
+            el.textContent = prefix + current.toFixed(decimals) + suffix;
+
+            if (frame >= totalFrames) {
+                clearInterval(interval);
+                el.textContent = prefix + target.toFixed(decimals) + suffix;
+            }
+        }, frameRate);
+    });
+}
