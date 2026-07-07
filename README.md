@@ -1,29 +1,58 @@
-# FinSight - Personal Finance Platform
+FinSight – Personal Finance & Investment Intelligence Platform
 
-FinSight is a clean, minimal personal finance web application built using Python, Flask, and SQLite. It features visual metrics, expense tracking, category budgeting, and portfolio monitoring.
 
-## Key Update
-- **Public Landing Page**: The main landing page is now served at the root URL `/` for non-logged-in users.
-- **Financial Dashboard**: The authenticated dashboard experience has been moved to `/dashboard`.
+Project Overview
 
-## Features
-- **Landing Page**: Modern company-style landing page with hero header, live scroll animations, a visual finance SVG graphic, counts animation, feature cards, and visual call-to-action sections.
-- **Dashboard**: High-level telemetry of month-to-date income, expenses, savings progress, category breakdown doughnut charts, and recent transaction history.
-- **Expenses**: Complete ledger to view, filter (by type, category, or month), edit, delete, and add new transactions.
-- **Budgets**: Configure spending limits for custom expense categories and monitor visual limits.
-- **Profile**: Customize user information and display currency settings.
+FinSight is a full-stack personal finance management web application built as
+part of an internship/project-based learning assignment. It helps users track
+income and expenses, manage budgets, monitor investments, plan financial
+goals, and get intelligent insights into their overall financial health —
+all from a single, easy-to-use dashboard.
 
-## Running the Project
-1. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-2. Navigate to the code directory:
-   ```bash
-   cd finsight
-   ```
-3. Run the development server:
-   ```bash
-   python app.py
-   ```
-4. Access the site in your browser at `http://127.0.0.1:5000/`.
+The project is being built in 4 milestones over 8 weeks, with each
+milestone adding a new layer of functionality on top of the previous one.
+
+Modules to Be Implemented
+
+1. User Authentication & Profile Management
+2. Expense & Budget Management
+3. Investment Portfolio Tracking
+4. Financial Goal Planning
+5. Analytics & Intelligence Engine
+6. Dashboard & Reporting
+7. Notification & Alert System
+
+
+
+Flow of the application
+
+1.User Registration/Login
+        │
+        ▼
+2.Profile Setup (income, currency, preferences)
+        │
+        ▼
+3.Data Entry (add income & expense transactions, categorize them)
+        │
+        ▼
+Budget Management (set limits per category, monitor utilization)
+        │
+        ▼
+   ┌────┴─────┐
+   ▼          ▼
+Investment   Goal
+Tracking     Planning
+   │          │
+   └────┬─────┘
+        ▼
+Analytics & Intelligence Engine
+(spending analysis, health score, recommendations)
+        │
+        ▼
+Dashboards & Reports  ──►  Alerts & Notifications
+        │
+        ▼
+Export & Sharing (PDF / Excel)
+        │
+        ▼
+Continuous Monitoring & Improvement (feedback loop back to dashboard)
