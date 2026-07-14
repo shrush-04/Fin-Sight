@@ -20,6 +20,8 @@ class User(db.Model):
     categories = db.relationship('Category', backref='user', lazy=True, cascade="all, delete-orphan")
     transactions = db.relationship('Transaction', backref='user', lazy=True, cascade="all, delete-orphan")
     budgets = db.relationship('Budget', backref='user', lazy=True, cascade="all, delete-orphan")
+    investments = db.relationship('Investment', backref='user', lazy=True, cascade="all, delete-orphan")
+    goals = db.relationship('Goal', backref='user', lazy=True, cascade="all, delete-orphan")
 
     def set_password(self, password):
         """Hashes password using werkzeug.security."""
@@ -69,4 +71,63 @@ class Budget(db.Model):
     category_id = db.Column(db.Integer, db.ForeignKey('categories.id', ondelete='CASCADE'), nullable=False)
     amount = db.Column(db.Float, nullable=False)
     month = db.Column(db.String(7), nullable=False) # YYYY-MM format
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class Investment(db.Model):
+    """Investment holdings model."""
+    __tablename__ = 'investments'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    asset_type = db.Column(db.String(50), nullable=False) # Stock/Mutual Fund/ETF/Bond/Gold/Cash/Other
+    asset_name = db.Column(db.String(150), nullable=False)
+    quantity = db.Column(db.Float, nullable=False, default=0.0)
+    purchase_price = db.Column(db.Float, nullable=False, default=0.0)
+    current_value = db.Column(db.Float, nullable=False, default=0.0)
+    purchase_date = db.Column(db.Date, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    history = db.relationship('PortfolioHistory', backref='investment', lazy=True, cascade="all, delete-orphan")
+
+
+class PortfolioHistory(db.Model):
+    """Historical value snapshots for investments."""
+    __tablename__ = 'portfolio_history'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    investment_id = db.Column(db.Integer, db.ForeignKey('investments.id', ondelete='CASCADE'), nullable=False)
+    date = db.Column(db.Date, nullable=False)
+    units = db.Column(db.Float, nullable=False)
+    nav_price = db.Column(db.Float, nullable=False)
+    total_value = db.Column(db.Float, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class Goal(db.Model):
+    """Financial goal model."""
+    __tablename__ = 'goals'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    goal_name = db.Column(db.String(150), nullable=False)
+    goal_type = db.Column(db.String(50), nullable=False) # Home/Retirement/Travel/Education/Other
+    target_amount = db.Column(db.Float, nullable=False)
+    current_amount = db.Column(db.Float, nullable=False, default=0.0)
+    target_date = db.Column(db.Date, nullable=False)
+    status = db.Column(db.String(50), nullable=False, default='On Track') # On Track/At Risk/Completed
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    transactions = db.relationship('GoalTransaction', backref='goal', lazy=True, cascade="all, delete-orphan")
+
+
+class GoalTransaction(db.Model):
+    """Contributions toward a financial goal."""
+    __tablename__ = 'goal_transactions'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    goal_id = db.Column(db.Integer, db.ForeignKey('goals.id', ondelete='CASCADE'), nullable=False)
+    amount = db.Column(db.Float, nullable=False)
+    date = db.Column(db.Date, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)

@@ -1,0 +1,345 @@
+{% extends 'base.html' %}
+
+{% block title %}Investments - FinSight{% endblock %}
+
+{% block header_title %}Investment Portfolio{% endblock %}
+{% block header_subtitle %}Track your holdings, performance, and asset allocation{% endblock %}
+
+{% block content %}
+<div class="investments-container animate-fade-in-up">
+    <!-- Action Bar -->
+    <div class="action-bar">
+        <div style="flex-grow: 1;"></div>
+        <button onclick="toggleAddForm()" class="btn btn-primary">
+            <i class="fa-solid fa-plus"></i> Add Holding
+        </button>
+    </div>
+
+    <!-- Add Investment Card (Collapsible) -->
+    <div id="addInvestmentCard" class="card collapsible-card collapsed animate-fade-in" style="margin-bottom: 24px;">
+        <div class="card-header">
+            <h3>Add New Holding</h3>
+            <button class="btn btn-close" onclick="toggleAddForm()">&times;</button>
+        </div>
+        <form method="POST" action="{{ url_for('investments') }}" class="transaction-form">
+            <div class="form-row">
+                <div class="form-group col-4">
+                    <label for="inv_asset_type">Asset Type</label>
+                    <select name="asset_type" id="inv_asset_type" required>
+                        <option value="Stock">Stock</option>
+                        <option value="Mutual Fund">Mutual Fund</option>
+                        <option value="ETF">ETF</option>
+                        <option value="Bond">Bond</option>
+                        <option value="Gold">Gold</option>
+                        <option value="Cash">Cash</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+                
+                <div class="form-group col-4">
+                    <label for="inv_asset_name">Asset Name / Symbol</label>
+                    <input type="text" name="asset_name" id="inv_asset_name" required placeholder="e.g. Reliance Industries, Apple Inc">
+                </div>
+
+                <div class="form-group col-4">
+                    <label for="inv_quantity">Quantity</label>
+                    <input type="number" name="quantity" id="inv_quantity" min="0.00001" step="any" required placeholder="0.00">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group col-6">
+                    <label for="inv_purchase_price">Purchase Price</label>
+                    <div class="input-wrapper">
+                        <span class="input-prefix">{{ g.user.currency }}</span>
+                        <input type="number" name="purchase_price" id="inv_purchase_price" min="0.01" step="any" required placeholder="0.00">
+                    </div>
+                </div>
+
+                <div class="form-group col-6">
+                    <label for="inv_current_value">Current Total Value (Optional)</label>
+                    <div class="input-wrapper">
+                        <span class="input-prefix">{{ g.user.currency }}</span>
+                        <input type="number" name="current_value" id="inv_current_value" min="0" step="any" placeholder="Defaults to Purchase Cost">
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="inv_purchase_date">Purchase Date</label>
+                <input type="date" name="purchase_date" id="inv_purchase_date" value="{{ today_str }}" required>
+            </div>
+
+            <div class="form-actions">
+                <button type="button" onclick="toggleAddForm()" class="btn btn-secondary">Cancel</button>
+                <button type="submit" class="btn btn-primary">Add Holding</button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Summary KPI Cards -->
+    <div class="dashboard-grid" style="margin-bottom: 32px;">
+        <div class="kpi-card">
+            <div class="kpi-icon" style="background-color: var(--accent-light); color: var(--accent);"><i class="fa-solid fa-chart-line"></i></div>
+            <div class="kpi-info">
+                <h3>Total Portfolio Value</h3>
+                <div class="kpi-value-container">
+                    <span class="currency">{{ g.user.currency }}</span>
+                    <span class="kpi-value count-up" data-value="{{ "%.2f"|format(total_current_val) }}">0.00</span>
+                </div>
+                <p class="kpi-label">Current Value</p>
+            </div>
+        </div>
+
+        <div class="kpi-card">
+            <div class="kpi-icon" style="background-color: var(--border-color); color: var(--text-secondary);"><i class="fa-solid fa-wallet"></i></div>
+            <div class="kpi-info">
+                <h3>Total Invested</h3>
+                <div class="kpi-value-container">
+                    <span class="currency">{{ g.user.currency }}</span>
+                    <span class="kpi-value count-up" data-value="{{ "%.2f"|format(total_invested) }}">0.00</span>
+                </div>
+                <p class="kpi-label">Principal Cost</p>
+            </div>
+        </div>
+
+        <div class="kpi-card savings {% if overall_return_amt >= 0 %}positive{% else %}negative{% endif %}">
+            <div class="kpi-icon"><i class="fa-solid {% if overall_return_amt >= 0 %}fa-arrow-trend-up{% else %}fa-arrow-trend-down{% endif %}"></i></div>
+            <div class="kpi-info">
+                <h3>Overall Return</h3>
+                <div class="kpi-value-container">
+                    <span class="currency">{{ g.user.currency }}</span>
+                    <span class="kpi-value count-up" data-value="{{ "%.2f"|format(overall_return_amt) }}">0.00</span>
+                </div>
+                <p class="kpi-label" style="font-weight:600; color:{% if overall_return_amt >= 0 %}var(--success){% else %}var(--danger){% endif %}">
+                    {{ "+" if overall_return_amt >= 0 }}{{ "%.2f"|format(overall_return_pct) }}%
+                </p>
+            </div>
+        </div>
+
+        <div class="kpi-card">
+            <div class="kpi-icon" style="background-color: var(--warning-light); color: var(--warning);"><i class="fa-regular fa-clock"></i></div>
+            <div class="kpi-info">
+                <h3>Today's Change</h3>
+                <div class="kpi-value-container">
+                    <span class="kpi-value" style="color: var(--success); font-weight:600;">+0.00%</span>
+                </div>
+                <p class="kpi-label">Market feed placeholder</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts Section -->
+    <div class="charts-grid">
+        <!-- Asset Allocation Chart -->
+        <div class="chart-card donut-chart-card">
+            <h3>Asset Allocation</h3>
+            <p class="chart-subtitle">Split by Asset Class</p>
+            <div class="chart-container">
+                {% if total_current_val > 0 and donut_data %}
+                <canvas id="assetAllocationChart"></canvas>
+                {% else %}
+                <div class="no-chart-data">
+                    <i class="fa-solid fa-chart-pie"></i>
+                    <p>No investments logged yet</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Portfolio Performance Chart -->
+        <div class="chart-card line-chart-card">
+            <h3>Portfolio Performance</h3>
+            <p class="chart-subtitle">Historical value trend</p>
+            <div class="chart-container">
+                <canvas id="performanceLineChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Holdings Table Card -->
+    <div class="card table-card" style="margin-top: 32px;">
+        <div class="table-header">
+            <h3>Holdings Summary</h3>
+        </div>
+        <div class="table-responsive">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Asset Name</th>
+                        <th>Type</th>
+                        <th class="text-right">Qty</th>
+                        <th class="text-right">Avg Price</th>
+                        <th class="text-right">Invested Amount</th>
+                        <th class="text-right">Current Value</th>
+                        <th class="text-right">Return</th>
+                        <th class="text-center">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% if holdings %}
+                        {% for h in holdings %}
+                        {% set invested_amt = h.quantity * h.purchase_price %}
+                        {% set gain_loss_amt = h.current_value - invested_amt %}
+                        {% set gain_loss_pct = (gain_loss_amt / invested_amt) * 100 if invested_amt > 0 else 0.0 %}
+                        <tr>
+                            <td><strong>{{ h.asset_name }}</strong></td>
+                            <td><span class="paymode-badge">{{ h.asset_type }}</span></td>
+                            <td class="text-right">{{ "%.4f"|format(h.quantity) }}</td>
+                            <td class="text-right">{{ g.user.currency }} {{ "%.2f"|format(h.purchase_price) }}</td>
+                            <td class="text-right">{{ g.user.currency }} {{ "%.2f"|format(invested_amt) }}</td>
+                            <td class="text-right">{{ g.user.currency }} {{ "%.2f"|format(h.current_value) }}</td>
+                            <td class="text-right amount-cell" style="font-weight:600; color:{% if gain_loss_amt >= 0 %}var(--success){% else %}var(--danger){% endif %}">
+                                {{ "+" if gain_loss_amt >= 0 }}{{ "%.2f"|format(gain_loss_amt) }}<br>
+                                <span style="font-size:0.75rem;">({{ "+" if gain_loss_amt >= 0 }}{{ "%.2f"|format(gain_loss_pct) }}%)</span>
+                            </td>
+                            <td class="text-center actions-cell">
+                                <button onclick="openUpdateModal({{ h.id }}, '{{ h.asset_name | escape }}', {{ h.current_value }})" 
+                                        class="btn btn-icon btn-edit" title="Update Value">
+                                    <i class="fa-solid fa-arrow-rotate-right"></i>
+                                </button>
+                                <form method="POST" action="{{ url_for('delete_investment', inv_id=h.id) }}" style="display:inline;" onsubmit="return confirm('Are you sure you want to delete this holding?')">
+                                    <button type="submit" class="btn btn-icon btn-delete" title="Delete">
+                                        <i class="fa-regular fa-trash-can"></i>
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    {% else %}
+                        <tr>
+                            <td colspan="8" class="text-center no-data">
+                                <i class="fa-regular fa-folder-open"></i>
+                                <p>No holdings found. Click 'Add Holding' to register your investments.</p>
+                            </td>
+                        </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Update Value Modal -->
+<div id="updateModal" class="modal-backdrop" style="display: none;">
+    <div class="modal-card animate-fade-in-up" style="max-width: 420px;">
+        <div class="modal-header">
+            <h3>Update Holding Value</h3>
+            <button class="btn btn-close" onclick="closeUpdateModal()">&times;</button>
+        </div>
+        <p style="margin-bottom: 16px; font-size: 0.9rem; color: var(--text-secondary);">
+            Enter the new total market value for <strong id="update_asset_name" style="color: var(--text-primary);"></strong>.
+        </p>
+        <form id="update_value_form" method="POST" action="" class="transaction-form">
+            <div class="form-group">
+                <label for="update_current_value">Current Market Value</label>
+                <div class="input-wrapper">
+                    <span class="input-prefix">{{ g.user.currency }}</span>
+                    <input type="number" name="current_value" id="update_current_value" min="0" step="any" required placeholder="0.00">
+                </div>
+            </div>
+
+            <div class="form-actions" style="margin-top: 24px;">
+                <button type="button" onclick="closeUpdateModal()" class="btn btn-secondary">Cancel</button>
+                <button type="submit" class="btn btn-primary">Update Value</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    // Toggle Form
+    function toggleAddForm() {
+        const card = document.getElementById('addInvestmentCard');
+        if (card.classList.contains('collapsed')) {
+            card.classList.remove('collapsed');
+        } else {
+            card.classList.add('collapsed');
+        }
+    }
+
+    // Modal Control
+    function openUpdateModal(id, name, val) {
+        document.getElementById('update_value_form').action = '/investments/update_value/' + id;
+        document.getElementById('update_asset_name').textContent = name;
+        document.getElementById('update_current_value').value = val;
+        document.getElementById('updateModal').style.display = 'flex';
+    }
+
+    function closeUpdateModal() {
+        document.getElementById('updateModal').style.display = 'none';
+    }
+
+    // Charts Rendering
+    document.addEventListener("DOMContentLoaded", function() {
+        const donutCtx = document.getElementById('assetAllocationChart');
+        if (donutCtx) {
+            new Chart(donutCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: {{ donut_labels | tojson | safe }},
+                    datasets: [{
+                        data: {{ donut_data | tojson | safe }},
+                        backgroundColor: [
+                            '#D97757', // Terracotta
+                            '#5F8F66', // Forest Green
+                            '#D99543', // Gold Amber
+                            '#5082A6', // Slate Blue
+                            '#8F6DA6', // Soft Purple
+                            '#A39E98', // Muted Grey
+                            '#E2C39B'  // Light Khaki
+                        ],
+                        borderWidth: 2,
+                        borderColor: '#ffffff'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { font: { family: 'Inter', size: 11 } } },
+                        tooltip: { padding: 10 }
+                    },
+                    cutout: '70%'
+                }
+            });
+        }
+
+        const lineCtx = document.getElementById('performanceLineChart');
+        if (lineCtx) {
+            new Chart(lineCtx, {
+                type: 'line',
+                data: {
+                    labels: {{ line_labels | tojson | safe }},
+                    datasets: [{
+                        label: 'Portfolio Value',
+                        data: {{ line_data | tojson | safe }},
+                        borderColor: '#D97757',
+                        backgroundColor: 'rgba(217, 119, 87, 0.04)',
+                        fill: true,
+                        tension: 0.3,
+                        borderWidth: 2.5,
+                        pointRadius: 3,
+                        pointHoverRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { mode: 'index', intersect: false }
+                    },
+                    scales: {
+                        x: { grid: { display: false }, ticks: { font: { family: 'Inter', size: 10 } } },
+                        y: { grid: { color: '#EAE7E2' }, ticks: { font: { family: 'Inter', size: 10 } } }
+                    }
+                }
+            });
+        }
+    });
+</script>
+{% endblock %}

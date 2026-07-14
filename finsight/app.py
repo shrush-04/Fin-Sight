@@ -4,7 +4,18 @@ import datetime
 import calendar
 from functools import wraps
 from flask import Flask, render_template, request, redirect, url_for, session, flash, g, jsonify
-from models import db, User, Category, Transaction, Budget
+from models import db, User, Category, Transaction, Budget, Investment, PortfolioHistory, Goal, GoalTransaction
+
+# --- OCR IMPORTS (optional; graceful fallback if not installed) ---
+try:
+    import pytesseract
+    pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+    from PIL import Image
+    # Windows users: set the path to the Tesseract binary if needed.
+   
+    OCR_AVAILABLE = True
+except ImportError:
+    OCR_AVAILABLE = False
 
 app = Flask(__name__)
 
@@ -16,9 +27,151 @@ db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'finsight.db'
 app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
+# Receipt upload configuration
+RECEIPT_UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'uploads', 'receipts')
+os.makedirs(RECEIPT_UPLOAD_FOLDER, exist_ok=True)
+ALLOWED_RECEIPT_EXTENSIONS = {'jpg', 'jpeg', 'png'}
+MAX_RECEIPT_SIZE_MB = 10
+
 db.init_app(app)
 
 EMAIL_REGEX = r'^[\w\.-]+@[\w\.-]+\.\w+$'
+
+
+# --- OCR HELPER FUNCTIONS ---
+
+def allowed_receipt_file(filename):
+    """Validates that the uploaded file has an accepted image extension."""
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_RECEIPT_EXTENSIONS
+
+
+def guess_category_from_merchant(merchant_name, categories):
+    """
+    Applies simple keyword heuristics to guess the best matching expense
+    category from the user's category list based on merchant/payee name.
+    """
+    name_lower = merchant_name.lower()
+
+    keyword_map = [
+        (['swiggy', 'zomato', 'restaurant', 'cafe', 'food', 'pizza', 'burger', 'biryani', 'kitchen', 'dhaba', 'eatery', 'bakery'], 'Food & Dining'),
+        (['uber', 'ola', 'metro', 'rapido', 'bus', 'train', 'flight', 'airways', 'petrol', 'fuel', 'irctc', 'indigo', 'air india'], 'Transportation'),
+        (['electricity', 'water', 'gas', 'broadband', 'internet', 'bill', 'recharge', 'airtel', 'jio', 'bsnl', 'vi ', 'vodafone', 'tata power', 'bescom', 'msedcl'], 'Utilities'),
+        (['netflix', 'spotify', 'amazon prime', 'hotstar', 'zee5', 'sonyliv', 'movie', 'cinema', 'pvr', 'inox', 'bookmyshow', 'gaming', 'game'], 'Entertainment'),
+        (['rent', 'housing', 'flat', 'apartment', 'maintenance', 'society'], 'Housing'),
+    ]
+
+    # Try to find a matching user category by keyword
+    for keywords, cat_name in keyword_map:
+        if any(kw in name_lower for kw in keywords):
+            for cat in categories:
+                if cat.type == 'Expense' and cat.name.lower() == cat_name.lower():
+                    return cat
+
+    # Fallback: return the first 'Others' expense category
+    for cat in categories:
+        if cat.type == 'Expense' and cat.name.lower() == 'others':
+            return cat
+
+    # Final fallback: first expense category available
+    for cat in categories:
+        if cat.type == 'Expense':
+            return cat
+
+    return None
+
+
+def parse_ocr_text(ocr_text):
+    """
+    Parses raw OCR text and extracts:
+      - amount (float or None)
+      - merchant (str or '')
+      - date (str in YYYY-MM-DD or '')
+      - gst_amount (float or None)
+    Returns a dict with those keys plus 'amount_confident' bool.
+    """
+    result = {
+        'amount': None,
+        'amount_confident': False,
+        'merchant': '',
+        'date': '',
+        'gst_amount': None,
+    }
+
+    lines = [ln.strip() for ln in ocr_text.splitlines() if ln.strip()]
+
+    # --- Amount extraction ---
+    # Priority 1: patterns like "Total: ₹1,234.50" / "Amount Paid ₹999"
+    total_patterns = [
+        r'(?:total|amount\s*paid|grand\s*total|net\s*amount|amt\s*paid)[\s:₹Rs.INR]*([\d,]+(?:\.\d{1,2})?)',
+        r'[₹Rs\.INR]+\s*([\d,]+(?:\.\d{1,2})?)',
+        r'([\d,]+(?:\.\d{1,2})?)\s*(?:INR|Rs|₹)',
+    ]
+    for pattern in total_patterns:
+        matches = re.findall(pattern, ocr_text, re.IGNORECASE)
+        if matches:
+            # Take the largest numeric match (most likely to be the total)
+            candidates = []
+            for m in matches:
+                try:
+                    candidates.append(float(m.replace(',', '')))
+                except ValueError:
+                    pass
+            if candidates:
+                result['amount'] = max(candidates)
+                result['amount_confident'] = True
+                break
+
+    # --- Date extraction ---
+    date_patterns = [
+        r'(?:date[:\s]*)?(\d{2}[\-/]\d{2}[\-/]\d{4})',  # dd-mm-yyyy or dd/mm/yyyy
+        r'(?:date[:\s]*)?(\d{4}[\-/]\d{2}[\-/]\d{2})',  # yyyy-mm-dd
+        r'(?:date[:\s]*)?([\d]{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{4})',  # 14 Jul 2025
+    ]
+    for pattern in date_patterns:
+        match = re.search(pattern, ocr_text, re.IGNORECASE)
+        if match:
+            raw_date = match.group(1).strip()
+            parsed_date = None
+            for fmt in ('%d-%m-%Y', '%d/%m/%Y', '%Y-%m-%d', '%Y/%m/%d', '%d %b %Y', '%d %B %Y'):
+                try:
+                    parsed_date = datetime.datetime.strptime(raw_date, fmt).date()
+                    break
+                except ValueError:
+                    continue
+            if parsed_date:
+                result['date'] = parsed_date.strftime('%Y-%m-%d')
+                break
+
+    # --- GST / CGST / SGST extraction ---
+    gst_pattern = r'(?:GST|CGST|SGST|IGST)[\s:₹Rs.INR]*([\d,]+(?:\.\d{1,2})?)'
+    gst_matches = re.findall(gst_pattern, ocr_text, re.IGNORECASE)
+    if gst_matches:
+        gst_vals = []
+        for m in gst_matches:
+            try:
+                gst_vals.append(float(m.replace(',', '')))
+            except ValueError:
+                pass
+        if gst_vals:
+            result['gst_amount'] = sum(gst_vals)
+
+    # --- Merchant / payee extraction ---
+    # Strategy 1: look for "Paid to" or "To:" patterns
+    paid_to_match = re.search(r'(?:paid\s*to|to)[:\s]+([^\n\d]{3,50})', ocr_text, re.IGNORECASE)
+    if paid_to_match:
+        result['merchant'] = paid_to_match.group(1).strip()
+    else:
+        # Strategy 2: use the first non-empty, non-numeric line (usually the merchant header)
+        for line in lines[:5]:
+            if len(line) >= 3 and not re.match(r'^[\d\s₹Rs.,:/\-]+$', line):
+                result['merchant'] = line
+                break
+
+    # Sanitize merchant name length
+    if result['merchant']:
+        result['merchant'] = result['merchant'][:100]
+
+    return result
 
 # Initialize DB structure within App Context
 with app.app_context():
@@ -236,6 +389,20 @@ def dashboard():
         Transaction.transaction_date.desc(), Transaction.id.desc()
     ).limit(10).all()
 
+    # Net savings (lifetime calculation) or savings from transaction history
+    all_income = db.session.query(db.func.sum(Transaction.amount)).filter_by(user_id=g.user.id, type='Income').scalar() or 0.0
+    all_expenses = db.session.query(db.func.sum(Transaction.amount)).filter_by(user_id=g.user.id, type='Expense').scalar() or 0.0
+    lifetime_savings = all_income - all_expenses
+
+    # Total current value of investments
+    total_investments_val = db.session.query(db.func.sum(Investment.current_value)).filter_by(user_id=g.user.id).scalar() or 0.0
+    
+    # Net Worth = Lifetime Savings + Total Investments Current Value
+    net_worth = lifetime_savings + total_investments_val
+
+    # Active Goals count (status != 'Completed')
+    active_goals_count = Goal.query.filter(Goal.user_id == g.user.id, Goal.status != 'Completed').count()
+
     return render_template(
         'dashboard.html',
         current_month_str=today.strftime('%B %Y'),
@@ -248,7 +415,9 @@ def dashboard():
         line_labels=line_labels,
         line_income_data=line_income_data,
         line_expense_data=line_expense_data,
-        recent_transactions=recent_transactions
+        recent_transactions=recent_transactions,
+        net_worth=net_worth,
+        active_goals_count=active_goals_count
     )
 
 
@@ -602,6 +771,504 @@ def profile():
             return redirect(url_for('profile'))
 
     return render_template('profile.html')
+
+
+# --- RECEIPT OCR ROUTES ---
+
+@app.route('/receipts/scan', methods=['POST'])
+@login_required
+def scan_receipt():
+    """
+    Accepts an uploaded receipt image, runs Tesseract OCR on it,
+    extracts structured fields, and returns a JSON payload for
+    the frontend review form.
+    """
+    if not OCR_AVAILABLE:
+        return jsonify({
+            'success': False,
+            'error': 'OCR engine not available. Please install pytesseract and Pillow (pip install pytesseract Pillow) and ensure Tesseract is installed on the system.'
+        }), 500
+
+    if 'receipt' not in request.files:
+        return jsonify({'success': False, 'error': 'No file uploaded.'}), 400
+
+    file = request.files['receipt']
+    if not file or file.filename == '':
+        return jsonify({'success': False, 'error': 'No file selected.'}), 400
+
+    if not allowed_receipt_file(file.filename):
+        return jsonify({'success': False, 'error': 'Unsupported file type. Please upload a JPEG or PNG image.'}), 400
+
+    # Save the file with a unique timestamped name
+    ext = file.filename.rsplit('.', 1)[1].lower()
+    unique_name = f'receipt_{g.user.id}_{int(datetime.datetime.utcnow().timestamp())}.{ext}'
+    save_path = os.path.join(RECEIPT_UPLOAD_FOLDER, unique_name)
+
+    try:
+        file.save(save_path)
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'Failed to save the uploaded file: {str(e)}'}), 500
+
+    # Run Tesseract OCR
+    try:
+        img = Image.open(save_path)
+        # Use a Tesseract config that works well with receipts
+        ocr_config = r'--oem 3 --psm 6'
+        ocr_text = pytesseract.image_to_string(img, config=ocr_config)
+    except pytesseract.TesseractNotFoundError:
+        return jsonify({
+            'success': False,
+            'error': 'Tesseract OCR engine not found. Windows users: install it from https://github.com/UB-Mannheim/tesseract/wiki and set the path in app.py if needed.'
+        }), 500
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'Failed to read the image: {str(e)}'}), 500
+
+    # Parse the OCR text
+    parsed = parse_ocr_text(ocr_text)
+
+    # Build category guess
+    categories = Category.query.filter_by(user_id=g.user.id, type='Expense').order_by(Category.name.asc()).all()
+    guessed_category = guess_category_from_merchant(parsed['merchant'], categories)
+
+    # Build the thumbnail URL (served via /static/)
+    thumbnail_url = url_for('static', filename=f'uploads/receipts/{unique_name}')
+
+    return jsonify({
+        'success': True,
+        'amount': parsed['amount'],
+        'amount_confident': parsed['amount_confident'],
+        'merchant': parsed['merchant'],
+        'date': parsed['date'] or datetime.date.today().strftime('%Y-%m-%d'),
+        'gst_amount': parsed['gst_amount'],
+        'guessed_category_id': guessed_category.id if guessed_category else None,
+        'thumbnail_url': thumbnail_url,
+        'ocr_text_preview': ocr_text[:500]  # helpful for debugging
+    })
+
+
+@app.route('/receipts/confirm', methods=['POST'])
+@login_required
+def confirm_receipt():
+    """
+    Saves the user-reviewed/corrected OCR-extracted data as a normal
+    Expense transaction — identical to the manual add_transaction flow.
+    """
+    amount_str = request.form.get('amount', '0').strip()
+    category_id_str = request.form.get('category_id', '').strip()
+    date_str = request.form.get('transaction_date', '').strip()
+    description = request.form.get('description', '').strip()
+    payment_mode = request.form.get('payment_mode', 'UPI').strip()
+
+    errors = []
+    try:
+        amount = float(amount_str)
+        if amount <= 0:
+            errors.append('Transaction amount must be greater than zero.')
+    except ValueError:
+        errors.append('Invalid transaction amount.')
+
+    try:
+        category_id = int(category_id_str)
+        category = Category.query.filter_by(id=category_id, user_id=g.user.id, type='Expense').first()
+        if not category:
+            errors.append('Selected category is invalid.')
+    except ValueError:
+        errors.append('Please select a valid expense category.')
+
+    try:
+        transaction_date = datetime.datetime.strptime(date_str, '%Y-%m-%d').date()
+    except ValueError:
+        errors.append('Invalid date format.')
+
+    if errors:
+        for error in errors:
+            flash(error, 'danger')
+        return redirect(url_for('expenses'))
+
+    tx = Transaction(
+        user_id=g.user.id,
+        category_id=category.id,
+        type='Expense',
+        amount=amount,
+        description=description,
+        transaction_date=transaction_date,
+        payment_mode=payment_mode
+    )
+    db.session.add(tx)
+    db.session.commit()
+    flash('Receipt transaction saved successfully!', 'success')
+    return redirect(url_for('expenses'))
+
+
+# --- INVESTMENTS PORTFOLIO ROUTES ---
+
+@app.route('/investments', methods=['GET', 'POST'])
+@login_required
+def investments():
+    """Displays holdings, handles new investments addition, displays asset allocation and history."""
+    if request.method == 'POST':
+        asset_type = request.form.get('asset_type', '').strip()
+        asset_name = request.form.get('asset_name', '').strip()
+        quantity_str = request.form.get('quantity', '0').strip()
+        purchase_price_str = request.form.get('purchase_price', '0').strip()
+        current_value_str = request.form.get('current_value', '').strip()
+        purchase_date_str = request.form.get('purchase_date', '').strip()
+
+        errors = []
+        if not asset_type or asset_type not in ['Stock', 'Mutual Fund', 'ETF', 'Bond', 'Gold', 'Cash', 'Other']:
+            errors.append("Please select a valid asset type.")
+        if not asset_name:
+            errors.append("Asset name is required.")
+        
+        try:
+            quantity = float(quantity_str)
+            if quantity <= 0:
+                errors.append("Quantity must be greater than zero.")
+        except ValueError:
+            errors.append("Invalid quantity format.")
+
+        try:
+            purchase_price = float(purchase_price_str)
+            if purchase_price <= 0:
+                errors.append("Purchase price must be greater than zero.")
+        except ValueError:
+            errors.append("Invalid purchase price format.")
+
+        if not current_value_str:
+            # Default to quantity * purchase_price if current value is blank
+            current_value = quantity * purchase_price
+        else:
+            try:
+                current_value = float(current_value_str)
+                if current_value < 0:
+                    errors.append("Current value cannot be negative.")
+            except ValueError:
+                errors.append("Invalid current value format.")
+
+        try:
+            purchase_date = datetime.datetime.strptime(purchase_date_str, '%Y-%m-%d').date()
+        except ValueError:
+            errors.append("Invalid purchase date format. Use YYYY-MM-DD.")
+
+        if errors:
+            for error in errors:
+                flash(error, 'danger')
+        else:
+            inv = Investment(
+                user_id=g.user.id,
+                asset_type=asset_type,
+                asset_name=asset_name,
+                quantity=quantity,
+                purchase_price=purchase_price,
+                current_value=current_value,
+                purchase_date=purchase_date
+            )
+            db.session.add(inv)
+            db.session.commit()
+
+            # Record initial portfolio history snapshot
+            hist = PortfolioHistory(
+                investment_id=inv.id,
+                date=datetime.date.today(),
+                units=quantity,
+                nav_price=current_value / quantity,
+                total_value=current_value
+            )
+            db.session.add(hist)
+            db.session.commit()
+
+            flash("Investment holding recorded successfully!", "success")
+            return redirect(url_for('investments'))
+
+    # Load holdings
+    holdings = Investment.query.filter_by(user_id=g.user.id).order_by(Investment.asset_name.asc()).all()
+
+    # Calculations for summary cards
+    total_invested = 0.0
+    total_current_val = 0.0
+
+    # Donut Chart Allocation data
+    allocation_map = {}
+
+    for h in holdings:
+        invested = h.quantity * h.purchase_price
+        total_invested += invested
+        total_current_val += h.current_value
+        
+        allocation_map[h.asset_type] = allocation_map.get(h.asset_type, 0.0) + h.current_value
+
+    overall_return_amt = total_current_val - total_invested
+    overall_return_pct = 0.0
+    if total_invested > 0:
+        overall_return_pct = (overall_return_amt / total_invested) * 100
+
+    donut_labels = list(allocation_map.keys())
+    donut_data = list(allocation_map.values())
+
+    # Line Chart: Portfolio Performance Over Time
+    # Query history entries grouped by date
+    history_records = db.session.query(
+        PortfolioHistory.date,
+        db.func.sum(PortfolioHistory.total_value)
+    ).join(Investment).filter(Investment.user_id == g.user.id)\
+     .group_by(PortfolioHistory.date)\
+     .order_by(PortfolioHistory.date.asc()).all()
+
+    line_labels = []
+    line_data = []
+
+    if history_records:
+        for r in history_records:
+            line_labels.append(r[0].strftime('%b %d, %Y'))
+            line_data.append(round(r[1], 2))
+    else:
+        # Fallback if no history records exist yet
+        line_labels = [datetime.date.today().strftime('%b %d, %Y')]
+        line_data = [round(total_current_val, 2)]
+
+    today_str = datetime.date.today().strftime('%Y-%m-%d')
+
+    return render_template(
+        'investments.html',
+        holdings=holdings,
+        total_invested=total_invested,
+        total_current_val=total_current_val,
+        overall_return_amt=overall_return_amt,
+        overall_return_pct=overall_return_pct,
+        donut_labels=donut_labels,
+        donut_data=donut_data,
+        line_labels=line_labels,
+        line_data=line_data,
+        today_str=today_str
+    )
+
+
+@app.route('/investments/update_value/<int:inv_id>', methods=['POST'])
+@login_required
+def update_investment_value(inv_id):
+    """Updates the current value of a holding and appends a PortfolioHistory record."""
+    inv = Investment.query.filter_by(id=inv_id, user_id=g.user.id).first_or_404()
+    current_value_str = request.form.get('current_value', '0').strip()
+
+    try:
+        current_value = float(current_value_str)
+        if current_value < 0:
+            flash("Current value cannot be negative.", "danger")
+            return redirect(url_for('investments'))
+    except ValueError:
+        flash("Invalid current value format.", "danger")
+        return redirect(url_for('investments'))
+
+    inv.current_value = current_value
+    inv.updated_at = datetime.datetime.utcnow()
+
+    # Append to history for the date
+    # Check if a record already exists for today to update it, or create a new one
+    today = datetime.date.today()
+    existing_hist = PortfolioHistory.query.filter_by(investment_id=inv.id, date=today).first()
+    if existing_hist:
+        existing_hist.units = inv.quantity
+        existing_hist.nav_price = current_value / inv.quantity if inv.quantity > 0 else 0
+        existing_hist.total_value = current_value
+    else:
+        hist = PortfolioHistory(
+            investment_id=inv.id,
+            date=today,
+            units=inv.quantity,
+            nav_price=current_value / inv.quantity if inv.quantity > 0 else 0,
+            total_value=current_value
+        )
+        db.session.add(hist)
+
+    db.session.commit()
+    flash(f"Current value for {inv.asset_name} updated successfully!", "success")
+    return redirect(url_for('investments'))
+
+
+@app.route('/investments/delete/<int:inv_id>', methods=['POST'])
+@login_required
+def delete_investment(inv_id):
+    """Deletes an investment holding completely."""
+    inv = Investment.query.filter_by(id=inv_id, user_id=g.user.id).first_or_404()
+    db.session.delete(inv)
+    db.session.commit()
+    flash("Investment holding deleted successfully.", "success")
+    return redirect(url_for('investments'))
+
+
+# --- FINANCIAL GOALS ROUTES ---
+
+@app.route('/goals', methods=['GET', 'POST'])
+@login_required
+def goals():
+    """Displays user goals, creates new goals, and shows projection results."""
+    if request.method == 'POST':
+        goal_name = request.form.get('goal_name', '').strip()
+        goal_type = request.form.get('goal_type', '').strip()
+        target_amount_str = request.form.get('target_amount', '0').strip()
+        current_amount_str = request.form.get('current_amount', '0').strip()
+        target_date_str = request.form.get('target_date', '').strip()
+
+        errors = []
+        if not goal_name:
+            errors.append("Goal name is required.")
+        if not goal_type or goal_type not in ['Home', 'Retirement', 'Travel', 'Education', 'Other']:
+            errors.append("Please select a valid goal type.")
+        
+        try:
+            target_amount = float(target_amount_str)
+            if target_amount <= 0:
+                errors.append("Target amount must be greater than zero.")
+        except ValueError:
+            errors.append("Invalid target amount format.")
+
+        try:
+            current_amount = float(current_amount_str)
+            if current_amount < 0:
+                errors.append("Current amount cannot be negative.")
+        except ValueError:
+            errors.append("Invalid current amount format.")
+
+        try:
+            target_date = datetime.datetime.strptime(target_date_str, '%Y-%m-%d').date()
+            if target_date <= datetime.date.today():
+                errors.append("Target date must be in the future.")
+        except ValueError:
+            errors.append("Invalid target date format. Use YYYY-MM-DD.")
+
+        if errors:
+            for error in errors:
+                flash(error, 'danger')
+        else:
+            goal = Goal(
+                user_id=g.user.id,
+                goal_name=goal_name,
+                goal_type=goal_type,
+                target_amount=target_amount,
+                current_amount=current_amount,
+                target_date=target_date,
+                status='On Track'
+            )
+            db.session.add(goal)
+            db.session.commit()
+
+            # Record initial contribution if current_amount > 0
+            if current_amount > 0:
+                gt = GoalTransaction(
+                    goal_id=goal.id,
+                    amount=current_amount,
+                    date=datetime.date.today()
+                )
+                db.session.add(gt)
+                db.session.commit()
+
+            flash("Financial Goal created successfully!", "success")
+            return redirect(url_for('goals'))
+
+    # Load goals
+    user_goals = Goal.query.filter_by(user_id=g.user.id).order_by(Goal.target_date.asc()).all()
+
+    # Calculate user's monthly savings rate based on monthly income and monthly transaction history
+    # Let's use monthly income (User.monthly_income) minus average monthly expense, or monthly income - this month's expenses.
+    # We will compute: monthly_income - current month's expenses as the savings rate.
+    today = datetime.date.today()
+    start_date = datetime.date(today.year, today.month, 1)
+    last_day = calendar.monthrange(today.year, today.month)[1]
+    end_date = datetime.date(today.year, today.month, last_day)
+
+    monthly_expenses = db.session.query(db.func.sum(Transaction.amount)).filter(
+        Transaction.user_id == g.user.id,
+        Transaction.type == 'Expense',
+        Transaction.transaction_date >= start_date,
+        Transaction.transaction_date <= end_date
+    ).scalar() or 0.0
+
+    monthly_savings_rate = max(0.0, g.user.monthly_income - monthly_expenses)
+
+    # Simple Projection Helper logic
+    # Calculate years/days remaining, update status dynamically
+    for goal in user_goals:
+        if goal.current_amount >= goal.target_amount:
+            goal.status = 'Completed'
+            continue
+
+        days_remaining = (goal.target_date - today).days
+        months_remaining = days_remaining / 30.44
+
+        # Calculate needed savings per month
+        needed_savings = goal.target_amount - goal.current_amount
+        needed_per_month = needed_savings / max(1.0, months_remaining)
+
+        # Check if user savings rate covers it.
+        # If savings rate is 0 or less than needed, mark it as 'At Risk'
+        if monthly_savings_rate >= needed_per_month:
+            goal.status = 'On Track'
+        else:
+            goal.status = 'At Risk'
+
+    db.session.commit()
+
+    today_str = today.strftime('%Y-%m-%d')
+
+    return render_template(
+        'goals.html',
+        goals=user_goals,
+        monthly_savings_rate=monthly_savings_rate,
+        today_str=today_str
+    )
+
+
+@app.route('/goals/add_funds/<int:goal_id>', methods=['POST'])
+@login_required
+def add_goal_funds(goal_id):
+    """Logs a goal contribution transaction, updates current_amount, and redirects."""
+    goal = Goal.query.filter_by(id=goal_id, user_id=g.user.id).first_or_404()
+    amount_str = request.form.get('amount', '0').strip()
+    date_str = request.form.get('date', '').strip()
+
+    try:
+        amount = float(amount_str)
+        if amount <= 0:
+            flash("Contribution amount must be greater than zero.", "danger")
+            return redirect(url_for('goals'))
+    except ValueError:
+        flash("Invalid contribution amount format.", "danger")
+        return redirect(url_for('goals'))
+
+    try:
+        date_obj = datetime.datetime.strptime(date_str, '%Y-%m-%d').date()
+    except ValueError:
+        date_obj = datetime.date.today()
+
+    # Log Goal Transaction
+    gt = GoalTransaction(
+        goal_id=goal.id,
+        amount=amount,
+        date=date_obj
+    )
+    db.session.add(gt)
+
+    # Update goal current amount
+    goal.current_amount += amount
+
+    # Recalculate status
+    if goal.current_amount >= goal.target_amount:
+        goal.status = 'Completed'
+
+    db.session.commit()
+    flash(f"Added {g.user.currency} {amount:.2f} toward '{goal.goal_name}'!", "success")
+    return redirect(url_for('goals'))
+
+
+@app.route('/goals/delete/<int:goal_id>', methods=['POST'])
+@login_required
+def delete_goal(goal_id):
+    """Deletes a financial goal and its transaction logs."""
+    goal = Goal.query.filter_by(id=goal_id, user_id=g.user.id).first_or_404()
+    db.session.delete(goal)
+    db.session.commit()
+    flash("Financial goal deleted successfully.", "success")
+    return redirect(url_for('goals'))
 
 
 if __name__ == '__main__':

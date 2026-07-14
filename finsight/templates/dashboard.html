@@ -65,6 +65,31 @@
     </div>
 </div>
 
+<div class="dashboard-grid animate-fade-in-up delay-100" style="margin-top: -16px; margin-bottom: 32px;">
+    <div class="kpi-card" style="border-left: 4px solid var(--accent);">
+        <div class="kpi-icon" style="background-color: var(--accent-light); color: var(--accent);"><i class="fa-solid fa-sack-dollar"></i></div>
+        <div class="kpi-info">
+            <h3>Net Worth</h3>
+            <div class="kpi-value-container">
+                <span class="currency">{{ g.user.currency }}</span>
+                <span class="kpi-value count-up" data-value="{{ "%.2f"|format(net_worth) }}">0.00</span>
+            </div>
+            <p class="kpi-label">Savings + Investments</p>
+        </div>
+    </div>
+
+    <div class="kpi-card" style="border-left: 4px solid var(--success);">
+        <div class="kpi-icon" style="background-color: var(--success-light); color: var(--success);"><i class="fa-solid fa-bullseye"></i></div>
+        <div class="kpi-info">
+            <h3>Active Goals</h3>
+            <div class="kpi-value-container">
+                <span class="kpi-value count-up" data-value="{{ active_goals_count }}">{{ active_goals_count }}</span>
+            </div>
+            <p class="kpi-label">Goals in progress</p>
+        </div>
+    </div>
+</div>
+
 <div class="charts-grid animate-fade-in-up delay-100">
     <!-- Expense Breakdown Chart -->
     <div class="chart-card donut-chart-card">

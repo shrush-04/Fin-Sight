@@ -50,6 +50,9 @@
         <button onclick="toggleAddForm()" class="btn btn-primary">
             <i class="fa-solid fa-plus"></i> Add Transaction
         </button>
+        <button onclick="openReceiptUploadModal()" class="btn btn-secondary" id="uploadReceiptBtn">
+            <i class="fa-solid fa-receipt"></i> Upload Receipt
+        </button>
     </div>
 
     <!-- Add Transaction Card (Collapsible) -->
@@ -238,6 +241,123 @@
         </form>
     </div>
 </div>
+
+<!-- Receipt Upload Modal -->
+<div id="receiptUploadModal" class="modal-backdrop" style="display:none;">
+    <div class="modal-card animate-fade-in-up" style="max-width:480px;">
+        <div class="modal-header">
+            <h3><i class="fa-solid fa-receipt" style="color:var(--accent);margin-right:8px;"></i>Upload Receipt</h3>
+            <button class="btn btn-close" onclick="closeReceiptUploadModal()">&times;</button>
+        </div>
+        <div class="receipt-upload-body">
+            <div class="upload-drop-zone" id="uploadDropZone" onclick="document.getElementById('receiptFileInput').click()">
+                <i class="fa-solid fa-cloud-arrow-up"></i>
+                <p>Click to choose or drag &amp; drop a receipt</p>
+                <span>JPEG or PNG &mdash; max 10 MB</span>
+            </div>
+            <input type="file" id="receiptFileInput" accept="image/jpeg,image/png" style="display:none;" onchange="onReceiptFileChosen(event)">
+            <div id="receiptFilePreviewRow" style="display:none;" class="receipt-file-preview-row">
+                <i class="fa-regular fa-image" style="color:var(--accent);"></i>
+                <span id="receiptFileName" class="receipt-filename"></span>
+                <button type="button" class="btn btn-text" onclick="clearReceiptFile()" style="margin-left:auto;color:var(--danger);">Remove</button>
+            </div>
+        </div>
+        <div class="form-actions" style="margin-top:20px;">
+            <button type="button" onclick="closeReceiptUploadModal()" class="btn btn-secondary">Cancel</button>
+            <button type="button" id="scanReceiptBtn" onclick="scanReceipt()" class="btn btn-primary" disabled>
+                <i class="fa-solid fa-wand-magic-sparkles"></i> Scan Receipt
+            </button>
+        </div>
+        <!-- Scanning spinner state -->
+        <div id="scanningSpinner" style="display:none;" class="scanning-spinner-row">
+            <span class="ocr-spinner"></span>
+            <span>Scanning receipt&hellip; please wait</span>
+        </div>
+        <!-- Error state -->
+        <div id="uploadErrorMsg" style="display:none;" class="ocr-error-msg"></div>
+    </div>
+</div>
+
+<!-- Receipt Review Modal -->
+<div id="receiptReviewModal" class="modal-backdrop" style="display:none;">
+    <div class="modal-card animate-fade-in-up receipt-review-modal">
+        <div class="modal-header">
+            <h3><i class="fa-solid fa-check-circle" style="color:var(--success);margin-right:8px;"></i>Review &amp; Confirm</h3>
+            <button class="btn btn-close" onclick="closeReceiptReviewModal()">&times;</button>
+        </div>
+
+        <div class="receipt-review-layout">
+            <!-- Thumbnail -->
+            <div class="receipt-thumbnail-pane">
+                <p class="review-pane-label">Receipt Preview</p>
+                <img id="receiptThumbnail" src="" alt="Receipt thumbnail" class="receipt-thumbnail-img">
+                <p class="review-pane-hint">Compare the extracted data with the receipt image above.</p>
+            </div>
+
+            <!-- Editable review form -->
+            <form id="receiptConfirmForm" method="POST" action="{{ url_for('confirm_receipt') }}" class="transaction-form receipt-review-form">
+                <!-- Amount warning if OCR couldn't detect it -->
+                <div id="amountWarning" style="display:none;" class="ocr-warning-banner">
+                    <i class="fa-solid fa-triangle-exclamation"></i>
+                    Couldn&rsquo;t detect amount &mdash; please enter manually.
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group col-6">
+                        <label for="rcpt_amount">Amount <span class="required-star">*</span></label>
+                        <div class="input-wrapper">
+                            <span class="input-prefix">{{ g.user.currency }}</span>
+                            <input type="number" name="amount" id="rcpt_amount" min="0.01" step="any" required placeholder="0.00">
+                        </div>
+                    </div>
+                    <div class="form-group col-6">
+                        <label for="rcpt_category">Category <span class="required-star">*</span></label>
+                        <select name="category_id" id="rcpt_category" required>
+                            {% for cat in categories %}
+                            {% if cat.type == 'Expense' %}
+                            <option value="{{ cat.id }}">{{ cat.name }}</option>
+                            {% endif %}
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="rcpt_description">Merchant / Description</label>
+                    <input type="text" name="description" id="rcpt_description" maxlength="200" placeholder="e.g. Swiggy order">
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group col-6">
+                        <label for="rcpt_date">Date <span class="required-star">*</span></label>
+                        <input type="date" name="transaction_date" id="rcpt_date" required>
+                    </div>
+                    <div class="form-group col-6">
+                        <label for="rcpt_payment_mode">Payment Mode</label>
+                        <select name="payment_mode" id="rcpt_payment_mode">
+                            <option value="UPI" selected>UPI</option>
+                            <option value="Card">Card</option>
+                            <option value="Cash">Cash</option>
+                            <option value="Bank Transfer">Bank Transfer</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- GST info row (display only) -->
+                <div id="gstInfoRow" style="display:none;" class="gst-info-row">
+                    <i class="fa-solid fa-info-circle"></i>
+                    <span>GST detected: <strong id="gstAmount"></strong></span>
+                </div>
+
+                <div class="form-actions">
+                    <button type="button" onclick="closeReceiptReviewModal()" class="btn btn-secondary">Cancel</button>
+                    <button type="button" onclick="goBackToUpload()" class="btn btn-secondary"><i class="fa-solid fa-arrow-left"></i> Re-scan</button>
+                    <button type="submit" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> Confirm &amp; Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -304,6 +424,179 @@
     // Initial update on load
     document.addEventListener("DOMContentLoaded", function() {
         updateCategoriesDropdown('tx_type', 'tx_category');
+        setupReceiptDragDrop();
     });
+
+    // =============================================
+    // RECEIPT OCR FLOW
+    // =============================================
+
+    let _chosenReceiptFile = null;
+
+    function openReceiptUploadModal() {
+        resetUploadModal();
+        document.getElementById('receiptUploadModal').style.display = 'flex';
+    }
+
+    function closeReceiptUploadModal() {
+        document.getElementById('receiptUploadModal').style.display = 'none';
+        resetUploadModal();
+    }
+
+    function closeReceiptReviewModal() {
+        document.getElementById('receiptReviewModal').style.display = 'none';
+    }
+
+    function goBackToUpload() {
+        document.getElementById('receiptReviewModal').style.display = 'none';
+        openReceiptUploadModal();
+    }
+
+    function resetUploadModal() {
+        _chosenReceiptFile = null;
+        document.getElementById('receiptFileInput').value = '';
+        document.getElementById('receiptFilePreviewRow').style.display = 'none';
+        document.getElementById('receiptFileName').textContent = '';
+        document.getElementById('scanReceiptBtn').disabled = true;
+        document.getElementById('scanningSpinner').style.display = 'none';
+        document.getElementById('uploadErrorMsg').style.display = 'none';
+        document.getElementById('uploadDropZone').style.display = 'flex';
+    }
+
+    function onReceiptFileChosen(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        _chosenReceiptFile = file;
+        document.getElementById('receiptFileName').textContent = file.name + ' (' + (file.size / 1024).toFixed(1) + ' KB)';
+        document.getElementById('receiptFilePreviewRow').style.display = 'flex';
+        document.getElementById('uploadDropZone').style.display = 'none';
+        document.getElementById('scanReceiptBtn').disabled = false;
+        document.getElementById('uploadErrorMsg').style.display = 'none';
+    }
+
+    function clearReceiptFile() {
+        resetUploadModal();
+    }
+
+    function showUploadError(msg) {
+        const el = document.getElementById('uploadErrorMsg');
+        el.textContent = msg;
+        el.style.display = 'block';
+        document.getElementById('scanningSpinner').style.display = 'none';
+        document.getElementById('scanReceiptBtn').disabled = false;
+    }
+
+    async function scanReceipt() {
+        if (!_chosenReceiptFile) return;
+
+        // Show spinner, hide button
+        document.getElementById('scanningSpinner').style.display = 'flex';
+        document.getElementById('scanReceiptBtn').disabled = true;
+        document.getElementById('uploadErrorMsg').style.display = 'none';
+
+        const formData = new FormData();
+        formData.append('receipt', _chosenReceiptFile);
+
+        try {
+            const response = await fetch('/receipts/scan', {
+                method: 'POST',
+                body: formData
+            });
+
+            const data = await response.json();
+
+            if (!data.success) {
+                showUploadError(data.error || 'An unexpected error occurred.');
+                return;
+            }
+
+            // Populate and show the review modal
+            populateReviewForm(data);
+            document.getElementById('receiptUploadModal').style.display = 'none';
+            document.getElementById('receiptReviewModal').style.display = 'flex';
+
+        } catch (err) {
+            showUploadError('Network error: ' + err.message);
+        }
+    }
+
+    function populateReviewForm(data) {
+        // Amount
+        const amountInput = document.getElementById('rcpt_amount');
+        const amountWarning = document.getElementById('amountWarning');
+        if (data.amount && data.amount_confident) {
+            amountInput.value = data.amount;
+            amountWarning.style.display = 'none';
+        } else {
+            amountInput.value = '';
+            amountWarning.style.display = 'flex';
+        }
+
+        // Description / merchant
+        document.getElementById('rcpt_description').value = data.merchant || '';
+
+        // Date
+        document.getElementById('rcpt_date').value = data.date || new Date().toISOString().slice(0, 10);
+
+        // Payment mode — default UPI for receipt uploads
+        document.getElementById('rcpt_payment_mode').value = 'UPI';
+
+        // Category — pre-select guessed category
+        if (data.guessed_category_id) {
+            const catSelect = document.getElementById('rcpt_category');
+            for (let i = 0; i < catSelect.options.length; i++) {
+                if (parseInt(catSelect.options[i].value) === data.guessed_category_id) {
+                    catSelect.selectedIndex = i;
+                    break;
+                }
+            }
+        }
+
+        // GST info
+        const gstRow = document.getElementById('gstInfoRow');
+        if (data.gst_amount) {
+            document.getElementById('gstAmount').textContent = '₹' + data.gst_amount.toFixed(2);
+            gstRow.style.display = 'flex';
+        } else {
+            gstRow.style.display = 'none';
+        }
+
+        // Thumbnail
+        const thumb = document.getElementById('receiptThumbnail');
+        thumb.src = data.thumbnail_url;
+    }
+
+    // Drag-and-drop support for the upload zone
+    function setupReceiptDragDrop() {
+        const zone = document.getElementById('uploadDropZone');
+        if (!zone) return;
+
+        zone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            zone.style.borderColor = 'var(--accent)';
+            zone.style.background = 'var(--accent-light)';
+        });
+
+        zone.addEventListener('dragleave', () => {
+            zone.style.borderColor = '';
+            zone.style.background = '';
+        });
+
+        zone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            zone.style.borderColor = '';
+            zone.style.background = '';
+            const file = e.dataTransfer.files[0];
+            if (file) {
+                // Programmatically set the file on the input via a DataTransfer trick
+                const dt = new DataTransfer();
+                dt.items.add(file);
+                const inp = document.getElementById('receiptFileInput');
+                inp.files = dt.files;
+                onReceiptFileChosen({ target: { files: [file] } });
+            }
+        });
+    }
 </script>
 {% endblock %}

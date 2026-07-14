@@ -1,0 +1,205 @@
+{% extends 'base.html' %}
+
+{% block title %}Financial Goals - FinSight{% endblock %}
+
+{% block header_title %}Financial Goals{% endblock %}
+{% block header_subtitle %}Plan, track, and achieve your financial targets{% endblock %}
+
+{% block content %}
+<div class="goals-container animate-fade-in-up">
+    <!-- Action Bar -->
+    <div class="action-bar">
+        <div style="flex-grow: 1;">
+            <span class="paymode-badge" style="background-color: var(--success-light); color: var(--success); font-weight:600; padding:8px 12px; border-radius: 20px;">
+                Monthly Savings Rate: {{ g.user.currency }} {{ "%.2f"|format(monthly_savings_rate) }}
+            </span>
+        </div>
+        <button onclick="toggleAddForm()" class="btn btn-primary">
+            <i class="fa-solid fa-plus"></i> Create Goal
+        </button>
+    </div>
+
+    <!-- Create Goal Card (Collapsible) -->
+    <div id="addGoalCard" class="card collapsible-card collapsed animate-fade-in" style="margin-bottom: 24px;">
+        <div class="card-header">
+            <h3>Create Financial Goal</h3>
+            <button class="btn btn-close" onclick="toggleAddForm()">&times;</button>
+        </div>
+        <form method="POST" action="{{ url_for('goals') }}" class="transaction-form">
+            <div class="form-row">
+                <div class="form-group col-6">
+                    <label for="goal_name">Goal Name</label>
+                    <input type="text" name="goal_name" id="goal_name" required placeholder="e.g. Buy a Car, Downpayment for Flat">
+                </div>
+
+                <div class="form-group col-6">
+                    <label for="goal_type">Goal Type</label>
+                    <select name="goal_type" id="goal_type" required>
+                        <option value="Home">Home</option>
+                        <option value="Retirement">Retirement</option>
+                        <option value="Travel">Travel</option>
+                        <option value="Education">Education</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group col-6">
+                    <label for="target_amount">Target Amount</label>
+                    <div class="input-wrapper">
+                        <span class="input-prefix">{{ g.user.currency }}</span>
+                        <input type="number" name="target_amount" id="target_amount" min="0.01" step="any" required placeholder="0.00">
+                    </div>
+                </div>
+
+                <div class="form-group col-6">
+                    <label for="current_amount">Current Savings Toward Goal (Optional)</label>
+                    <div class="input-wrapper">
+                        <span class="input-prefix">{{ g.user.currency }}</span>
+                        <input type="number" name="current_amount" id="current_amount" min="0" step="any" placeholder="0.00" value="0">
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="target_date">Target Date</label>
+                <input type="date" name="target_date" id="target_date" required>
+            </div>
+
+            <div class="form-actions">
+                <button type="button" onclick="toggleAddForm()" class="btn btn-secondary">Cancel</button>
+                <button type="submit" class="btn btn-primary">Create Goal</button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Goals Cards List -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 24px; margin-top: 24px;">
+        {% if goals %}
+            {% for goal in goals %}
+            {% set pct = (goal.current_amount / goal.target_amount) * 100 %}
+            <div class="card" style="display: flex; flex-direction: column; justify-content: space-between; border-top: 4px solid {% if goal.status == 'Completed' %}var(--success){% elif goal.status == 'On Track' %}#5082A6{% else %}var(--danger){% endif %};">
+                <div>
+                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px;">
+                        <div>
+                            <span class="paymode-badge" style="font-size: 0.7rem; text-transform: uppercase;">{{ goal.goal_type }}</span>
+                            <h3 style="margin-top: 4px; font-size: 1.2rem;">{{ goal.goal_name }}</h3>
+                        </div>
+                        <span class="category-badge {% if goal.status == 'Completed' %}income{% elif goal.status == 'On Track' %}income{% else %}expense{% endif %}" style="font-size: 0.75rem;">
+                            {{ goal.status }}
+                        </span>
+                    </div>
+
+                    <!-- Date & projection math -->
+                    <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 16px;">
+                        Target Date: {{ goal.target_date.strftime('%b %d, %Y') }}
+                    </p>
+
+                    <!-- Progress bar -->
+                    <div class="progress-wrapper" style="margin-top: 8px; margin-bottom: 12px;">
+                        <div class="progress-bar-label">
+                            <span>Progress</span>
+                            <span class="pct-value">{{ "%.1f"|format(pct) }}%</span>
+                        </div>
+                        <div class="progress-container">
+                            <div class="progress-bar {% if goal.status == 'Completed' %}success{% elif goal.status == 'On Track' %}success{% else %}danger{% endif %}" 
+                                 data-width="{{ pct }}" style="width: 0%"></div>
+                        </div>
+                    </div>
+
+                    <!-- Amounts display -->
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 16px; font-size: 0.85rem;">
+                        <div>
+                            <span style="color: var(--text-secondary);">Saved:</span><br>
+                            <strong>{{ g.user.currency }} {{ "%.2f"|format(goal.current_amount) }}</strong>
+                        </div>
+                        <div class="text-right">
+                            <span style="color: var(--text-secondary);">Target:</span><br>
+                            <strong>{{ g.user.currency }} {{ "%.2f"|format(goal.target_amount) }}</strong>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Card Actions -->
+                <div style="border-top: 1px solid var(--border-color); padding-top: 16px; display: flex; gap: 8px;">
+                    {% if goal.status != 'Completed' %}
+                    <button onclick="openAddFundsModal({{ goal.id }}, '{{ goal.goal_name | escape }}')" class="btn btn-secondary btn-block" style="padding: 8px 16px; font-size: 0.8rem;">
+                        <i class="fa-solid fa-coins"></i> Add Funds
+                    </button>
+                    {% endif %}
+                    <form method="POST" action="{{ url_for('delete_goal', goal_id=goal.id) }}" style="display:inline; {% if goal.status == 'Completed' %}width: 100%;{% endif %}" onsubmit="return confirm('Are you sure you want to delete this financial goal?')">
+                        <button type="submit" class="btn btn-secondary btn-block" style="padding: 8px 16px; font-size: 0.8rem; color: var(--danger); border-color: rgba(192, 86, 67, 0.2);">
+                            <i class="fa-regular fa-trash-can"></i> Delete
+                        </button>
+                    </form>
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+            <div class="card" style="grid-column: 1 / -1; text-align: center; padding: 48px;">
+                <i class="fa-regular fa-folder-open" style="font-size: 2.5rem; opacity: 0.3; margin-bottom: 12px; display: inline-block;"></i>
+                <p style="color: var(--text-secondary);">No goals created yet. Click 'Create Goal' to start planning.</p>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Add Funds Modal -->
+<div id="addFundsModal" class="modal-backdrop" style="display: none;">
+    <div class="modal-card animate-fade-in-up" style="max-width: 400px;">
+        <div class="modal-header">
+            <h3>Add Funds to Goal</h3>
+            <button class="btn btn-close" onclick="closeAddFundsModal()">&times;</button>
+        </div>
+        <p style="margin-bottom: 16px; font-size: 0.9rem; color: var(--text-secondary);">
+            Log your contribution toward <strong id="fund_goal_name" style="color: var(--text-primary);"></strong>.
+        </p>
+        <form id="add_funds_form" method="POST" action="" class="transaction-form">
+            <div class="form-group">
+                <label for="fund_amount">Amount</label>
+                <div class="input-wrapper">
+                    <span class="input-prefix">{{ g.user.currency }}</span>
+                    <input type="number" name="amount" id="fund_amount" min="0.01" step="any" required placeholder="0.00">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="fund_date">Contribution Date</label>
+                <input type="date" name="date" id="fund_date" value="{{ today_str }}" required>
+            </div>
+
+            <div class="form-actions" style="margin-top: 24px;">
+                <button type="button" onclick="closeAddFundsModal()" class="btn btn-secondary">Cancel</button>
+                <button type="submit" class="btn btn-primary">Add Funds</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Toggle Form
+    function toggleAddForm() {
+        const card = document.getElementById('addGoalCard');
+        if (card.classList.contains('collapsed')) {
+            card.classList.remove('collapsed');
+        } else {
+            card.classList.add('collapsed');
+        }
+    }
+
+    // Modal Control
+    function openAddFundsModal(id, name) {
+        document.getElementById('add_funds_form').action = '/goals/add_funds/' + id;
+        document.getElementById('fund_goal_name').textContent = name;
+        document.getElementById('fund_amount').value = '';
+        document.getElementById('addFundsModal').style.display = 'flex';
+    }
+
+    function closeAddFundsModal() {
+        document.getElementById('addFundsModal').style.display = 'none';
+    }
+</script>
+{% endblock %}
