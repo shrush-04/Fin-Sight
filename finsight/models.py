@@ -22,6 +22,7 @@ class User(db.Model):
     budgets = db.relationship('Budget', backref='user', lazy=True, cascade="all, delete-orphan")
     investments = db.relationship('Investment', backref='user', lazy=True, cascade="all, delete-orphan")
     goals = db.relationship('Goal', backref='user', lazy=True, cascade="all, delete-orphan")
+    cibil_scores = db.relationship('CibilScore', backref='user', lazy=True, cascade="all, delete-orphan")
 
     def set_password(self, password):
         """Hashes password using werkzeug.security."""
@@ -131,3 +132,30 @@ class GoalTransaction(db.Model):
     amount = db.Column(db.Float, nullable=False)
     date = db.Column(db.Date, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class Notification(db.Model):
+    """Alerts and notifications for budgets, investments, goals, and system summaries."""
+    __tablename__ = 'notifications'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    title = db.Column(db.String(150), nullable=False)
+    message = db.Column(db.Text, nullable=False)
+    type = db.Column(db.String(50), nullable=False) # 'Budget', 'Investment', 'Goal', 'System'
+    is_read = db.Column(db.Boolean, default=False, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class CibilScore(db.Model):
+    """Self-reported CIBIL Credit Score tracking model."""
+    __tablename__ = 'cibil_scores'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    score = db.Column(db.Integer, nullable=False) # 300-900 validation handled server-side
+    recorded_date = db.Column(db.Date, nullable=False)
+    notes = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+

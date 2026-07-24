@@ -31,6 +31,10 @@
                     <i class="fa-solid fa-square-poll-vertical"></i>
                     <span>Dashboard</span>
                 </a>
+                <a href="{{ url_for('analytics') }}" class="nav-item {% if request.path == '/analytics' %}active{% endif %}">
+                    <i class="fa-solid fa-chart-line"></i>
+                    <span>Analytics</span>
+                </a>
                 <a href="{{ url_for('expenses') }}" class="nav-item {% if request.path == '/expenses' %}active{% endif %}">
                     <i class="fa-solid fa-wallet"></i>
                     <span>Expenses</span>
@@ -80,6 +84,48 @@
                     <p class="header-subtitle">{% block header_subtitle %}Welcome back, {{ g.user.name }}{% endblock %}</p>
                 </div>
                 <div class="header-actions">
+                    <div class="notification-container">
+                        <button class="notification-bell-btn" id="notifBellBtn" aria-label="Notifications">
+                            <i class="fa-regular fa-bell"></i>
+                            {% if unread_notifications_count > 0 %}
+                            <span class="notification-badge" id="notifBadge">{{ unread_notifications_count }}</span>
+                            {% endif %}
+                        </button>
+                        <div class="notification-dropdown animate-fade-in" id="notifDropdown">
+                            <div class="notif-dropdown-header">
+                                <h3>Notifications</h3>
+                                {% if unread_notifications_count > 0 %}
+                                <button id="markAllReadBtn" class="mark-all-read-btn">Mark all read</button>
+                                {% endif %}
+                            </div>
+                            <div class="notif-dropdown-body" id="notifDropdownBody">
+                                {% if recent_notifications %}
+                                    {% for notif in recent_notifications %}
+                                    <div class="notif-item {% if not notif.is_read %}unread{% endif %}" data-id="{{ notif.id }}">
+                                        <div class="notif-icon-wrapper {{ notif.type.lower() }}">
+                                            {% if notif.type == 'Budget' %}
+                                            <i class="fa-solid fa-piggy-bank"></i>
+                                            {% elif notif.type == 'Investment' %}
+                                            <i class="fa-solid fa-chart-line"></i>
+                                            {% elif notif.type == 'Goal' %}
+                                            <i class="fa-solid fa-bullseye"></i>
+                                            {% else %}
+                                            <i class="fa-solid fa-circle-info"></i>
+                                            {% endif %}
+                                        </div>
+                                        <div class="notif-content">
+                                            <div class="notif-title">{{ notif.title }}</div>
+                                            <div class="notif-message">{{ notif.message }}</div>
+                                            <div class="notif-time">{{ notif.created_at.strftime('%b %d, %H:%M') }}</div>
+                                        </div>
+                                    </div>
+                                    {% endfor %}
+                                {% else %}
+                                    <div class="notif-empty">No notifications yet.</div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
                     <span class="date-badge"><i class="fa-regular fa-calendar"></i> <span id="currentDate"></span></span>
                 </div>
             </header>

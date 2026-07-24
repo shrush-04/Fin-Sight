@@ -178,7 +178,91 @@ document.addEventListener("DOMContentLoaded", () => {
     animateProgressBars();
     initializeCharts();
     initializeLandingPage();
+    initializeNotifications();
 });
+
+/**
+ * Notification System UI and API Interactions
+ */
+function initializeNotifications() {
+    const bellBtn = document.getElementById('notifBellBtn');
+    const dropdown = document.getElementById('notifDropdown');
+    const badge = document.getElementById('notifBadge');
+    const markAllBtn = document.getElementById('markAllReadBtn');
+
+    if (!bellBtn || !dropdown) return;
+
+    // Toggle Dropdown
+    bellBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        dropdown.classList.toggle('active');
+    });
+
+    // Close Dropdown when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!dropdown.contains(e.target) && e.target !== bellBtn) {
+            dropdown.classList.remove('active');
+        }
+    });
+
+    // Mark single notification read
+    const notifItems = document.querySelectorAll('.notif-item.unread');
+    notifItems.forEach(item => {
+        item.addEventListener('click', function(e) {
+            const notifId = this.getAttribute('data-id');
+            if (!notifId) return;
+
+            fetch(`/notifications/read/${notifId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    this.classList.remove('unread');
+                    
+                    // Update Badge Count
+                    if (badge) {
+                        let count = parseInt(badge.textContent) || 0;
+                        count = Math.max(0, count - 1);
+                        if (count > 0) {
+                            badge.textContent = count;
+                        } else {
+                            badge.remove();
+                        }
+                    }
+                }
+            })
+            .catch(err => console.error("Error marking notification read:", err));
+        });
+    });
+
+    // Mark all notifications read
+    if (markAllBtn) {
+        markAllBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            fetch('/notifications/read-all', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    document.querySelectorAll('.notif-item.unread').forEach(item => {
+                        item.classList.remove('unread');
+                    });
+                    if (badge) badge.remove();
+                    if (markAllBtn) markAllBtn.remove();
+                }
+            })
+            .catch(err => console.error("Error marking all read:", err));
+        });
+    }
+}
 
 /**
  * Landing Page Interactive UI Logic

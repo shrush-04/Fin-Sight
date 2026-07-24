@@ -4,7 +4,7 @@ import datetime
 import calendar
 from functools import wraps
 from flask import Flask, render_template, request, redirect, url_for, session, flash, g, jsonify
-from models import db, User, Category, Transaction, Budget, Investment, PortfolioHistory, Goal, GoalTransaction
+from models import db, User, Category, Transaction, Budget, Investment, PortfolioHistory, Goal, GoalTransaction, Notification, CibilScore
 
 # --- OCR IMPORTS (optional; graceful fallback if not installed) ---
 try:
@@ -18,6 +18,7 @@ except ImportError:
     OCR_AVAILABLE = False
 
 app = Flask(__name__)
+app.jinja_env.globals.update(round=round)
 
 # Core Secret Key for sessions
 app.secret_key = os.environ.get('SECRET_KEY', 'finsight-secure-dev-session-key-992211')
@@ -178,7 +179,351 @@ with app.app_context():
     db.create_all()
 
 
+# --- MILESTONE 3: FINANCIAL HEALTH SCORE & RECOMMENDATIONS & NOTIFICATIONS ---
+
+def calculate_health_score(user, month_str):
+    """
+    Calculates a rule-based Financial Health Score (0-100) based on 4 weighted factors (25% each):
+    a) Savings Rate (25%) - target 20% savings rate
+    b) Category Budget Discipline (25%) - staying within set budgets
+    c) Investment Activity (25%) - active investments + monthly rate (target 15%)
+    d) Overall Budget Adherence (25%) - overall spending vs overall budget
+    """
+    # Parse month dates
+    try:
+        year, month = map(int, month_str.split('-'))
+    except ValueError:
+        today = datetime.date.today()
+        year, month = today.year, today.month
+        month_str = today.strftime('%Y-%m')
+
+    last_day = calendar.monthrange(year, month)[1]
+    start_date = datetime.date(year, month, 1)
+    end_date = datetime.date(year, month, last_day)
+
+    # Get transactions
+    monthly_txs = Transaction.query.filter(
+        Transaction.user_id == user.id,
+        Transaction.transaction_date >= start_date,
+        Transaction.transaction_date <= end_date
+    ).all()
+
+    # Total income & expenses
+    income_tx_sum = sum(tx.amount for tx in monthly_txs if tx.type == 'Income')
+    monthly_income = user.monthly_income if user.monthly_income > 0 else income_tx_sum
+    expenses = sum(tx.amount for tx in monthly_txs if tx.type == 'Expense')
+
+    # Factor A: Savings Rate (25%)
+    savings_rate = 0.0
+    score_a = 0.0
+    if monthly_income > 0:
+        savings_rate = (monthly_income - expenses) / monthly_income
+        if savings_rate >= 0.20:
+            score_a = 25.0
+        elif savings_rate > 0:
+            score_a = (savings_rate / 0.20) * 25.0
+    
+    # Factor B: Category Budget Discipline (25%)
+    budgets = Budget.query.filter_by(user_id=user.id, month=month_str).all()
+    if not budgets:
+        score_b = 25.0 # default to max if no budgets configured
+        budget_details = []
+    else:
+        cat_scores = []
+        budget_details = []
+        for b in budgets:
+            spent = sum(tx.amount for tx in monthly_txs if tx.type == 'Expense' and tx.category_id == b.category_id)
+            if spent <= b.amount:
+                cat_score = 1.0
+            else:
+                over_ratio = (spent - b.amount) / b.amount
+                cat_score = max(0.0, 1.0 - over_ratio)
+            cat_scores.append(cat_score)
+            budget_details.append({
+                'category_name': b.category.name if b.category else "Others",
+                'budget': b.amount,
+                'spent': spent,
+                'over': spent > b.amount
+            })
+        score_b = (sum(cat_scores) / len(cat_scores)) * 25.0
+
+    # Factor C: Investment Activity (25%)
+    active_investments = Investment.query.filter_by(user_id=user.id).all()
+    monthly_investment = sum(inv.quantity * inv.purchase_price for inv in active_investments if inv.purchase_date.strftime('%Y-%m') == month_str)
+    
+    score_c = 0.0
+    investment_rate = 0.0
+    if active_investments:
+        score_c += 10.0 # base reward for having any active holdings
+        if monthly_income > 0:
+            investment_rate = monthly_investment / monthly_income
+            if investment_rate >= 0.15:
+                score_c += 15.0
+            else:
+                score_c += (investment_rate / 0.15) * 15.0
+        score_c = min(25.0, score_c)
+
+    # Factor D: Overall Budget Adherence (25%)
+    total_budget = sum(b.amount for b in budgets)
+    score_d = 25.0
+    if total_budget > 0:
+        if expenses <= total_budget:
+            score_d = 25.0
+        else:
+            over_ratio = (expenses - total_budget) / total_budget
+            score_d = max(0.0, 25.0 * (1.0 - over_ratio))
+
+    # CIBIL Score Integration (Optional 5th Factor)
+    latest_cibil = CibilScore.query.filter_by(user_id=user.id).order_by(CibilScore.recorded_date.desc(), CibilScore.id.desc()).first()
+    
+    if latest_cibil:
+        cibil_score_val = latest_cibil.score
+        cibil_normalized = ((cibil_score_val - 300) / 600.0) * 100.0
+        score_e = (cibil_normalized / 100.0) * 20.0
+        
+        # Rescale other 4 factors from max 25 to max 20
+        score_a_scaled = (score_a / 25.0) * 20.0
+        score_b_scaled = (score_b / 25.0) * 20.0
+        score_c_scaled = (score_c / 25.0) * 20.0
+        score_d_scaled = (score_d / 25.0) * 20.0
+        
+        overall_score = round(score_a_scaled + score_b_scaled + score_c_scaled + score_d_scaled + score_e)
+        factors_dict = {
+            'savings_rate': {
+                'value': savings_rate,
+                'score': round(score_a_scaled, 1),
+                'percent': round((score_a_scaled / 20.0) * 100),
+                'max_points': 20
+            },
+            'budget_discipline': {
+                'score': round(score_b_scaled, 1),
+                'percent': round((score_b_scaled / 20.0) * 100),
+                'details': budget_details,
+                'max_points': 20
+            },
+            'investment_activity': {
+                'value': investment_rate,
+                'monthly_amount': monthly_investment,
+                'score': round(score_c_scaled, 1),
+                'percent': round((score_c_scaled / 20.0) * 100),
+                'max_points': 20
+            },
+            'budget_adherence': {
+                'total_budget': total_budget,
+                'total_spent': expenses,
+                'score': round(score_d_scaled, 1),
+                'percent': round((score_d_scaled / 20.0) * 100),
+                'max_points': 20
+            },
+            'cibil_score': {
+                'value': cibil_score_val,
+                'score': round(score_e, 1),
+                'percent': round((score_e / 20.0) * 100),
+                'max_points': 20
+            }
+        }
+    else:
+        overall_score = round(score_a + score_b + score_c + score_d)
+        factors_dict = {
+            'savings_rate': {
+                'value': savings_rate,
+                'score': round(score_a, 1),
+                'percent': round((score_a / 25.0) * 100),
+                'max_points': 25
+            },
+            'budget_discipline': {
+                'score': round(score_b, 1),
+                'percent': round((score_b / 25.0) * 100),
+                'details': budget_details,
+                'max_points': 25
+            },
+            'investment_activity': {
+                'value': investment_rate,
+                'monthly_amount': monthly_investment,
+                'score': round(score_c, 1),
+                'percent': round((score_c / 25.0) * 100),
+                'max_points': 25
+            },
+            'budget_adherence': {
+                'total_budget': total_budget,
+                'total_spent': expenses,
+                'score': round(score_d, 1),
+                'percent': round((score_d / 25.0) * 100),
+                'max_points': 25
+            }
+        }
+    
+    # Labeling
+    if overall_score >= 80:
+        label = "Excellent"
+        color_class = "success"
+    elif overall_score >= 60:
+        label = "Good"
+        color_class = "info"
+    elif overall_score >= 40:
+        label = "Needs Attention"
+        color_class = "warning"
+    else:
+        label = "At Risk"
+        color_class = "danger"
+
+    return {
+        'overall_score': overall_score,
+        'label': label,
+        'color_class': color_class,
+        'factors': factors_dict
+    }
+
+
+def generate_recommendations(user, factors_data):
+    """
+    Generates rule-based, plain-language financial recommendations based on the 4 health score factors.
+    """
+    recommendations = []
+    
+    # Recommendation 1: Category budgets exceeded
+    budget_discipline = factors_data['factors']['budget_discipline']
+    for detail in budget_discipline.get('details', []):
+        if detail['over']:
+            diff_pct = round(((detail['spent'] - detail['budget']) / detail['budget']) * 100)
+            recommendations.append({
+                'icon': 'fa-solid fa-triangle-exclamation',
+                'class': 'danger',
+                'title': f'Over Budget: {detail["category_name"]}',
+                'text': f'You exceeded your budget for {detail["category_name"]} by {diff_pct}%. Consider reducing spending in this category next month.'
+            })
+
+    # Recommendation 2: High discretionary spending
+    # Discretionary categories: Food & Dining, Entertainment, Others
+    discretionary_categories = ['Entertainment', 'Others', 'Food & Dining']
+    total_spent = factors_data['factors']['budget_adherence']['total_spent']
+    
+    # We can check transactions in this month to see discretionary share
+    today = datetime.date.today()
+    start_date = datetime.date(today.year, today.month, 1)
+    last_day = calendar.monthrange(today.year, today.month)[1]
+    end_date = datetime.date(today.year, today.month, last_day)
+    
+    discretionary_spend = db.session.query(db.func.sum(Transaction.amount)).join(Category).filter(
+        Transaction.user_id == user.id,
+        Transaction.type == 'Expense',
+        Transaction.transaction_date >= start_date,
+        Transaction.transaction_date <= end_date,
+        Category.name.in_(discretionary_categories)
+    ).scalar() or 0.0
+
+    if total_spent > 0 and (discretionary_spend / total_spent) > 0.40:
+        disc_pct = round((discretionary_spend / total_spent) * 100)
+        recommendations.append({
+            'icon': 'fa-solid fa-face-rolling-eyes',
+            'class': 'warning',
+            'title': 'High Discretionary Spending',
+            'text': f'Discretionary expenses ({", ".join(discretionary_categories)}) make up {disc_pct}% of your total spending. Suggest cutting back by 15% to boost savings.'
+        })
+
+    # Recommendation 3: Low Savings Rate
+    savings_rate = factors_data['factors']['savings_rate']['value']
+    if savings_rate < 0.20:
+        rate_pct = round(max(0, savings_rate * 100))
+        recommendations.append({
+            'icon': 'fa-solid fa-piggy-bank',
+            'class': 'warning',
+            'title': 'Low Savings Rate',
+            'text': f'Your current monthly savings rate is {rate_pct}%, which is below the recommended 20%. Try to cut down non-essential costs or increase your income.'
+        })
+
+    # Recommendation 4: Low Investment Rate
+    investment_rate = factors_data['factors']['investment_activity']['value']
+    monthly_income = user.monthly_income
+    if investment_rate < 0.15 and monthly_income > 0:
+        rate_pct = round(investment_rate * 100)
+        target_amount = monthly_income * 0.15
+        current_amount = factors_data['factors']['investment_activity']['monthly_amount']
+        shortfall = max(0, target_amount - current_amount)
+        recommendations.append({
+            'icon': 'fa-solid fa-chart-line',
+            'class': 'info',
+            'title': 'Increase Investment Allocation',
+            'text': f'Your investment allocation is {rate_pct}%, below the target rate of 15%. Consider increasing monthly investments by {user.currency} {shortfall:.2f}.'
+        })
+        
+    # Default recommendation if everything is perfect
+    if not recommendations:
+        recommendations.append({
+            'icon': 'fa-solid fa-circle-check',
+            'class': 'success',
+            'title': 'Superb Financial Discipline!',
+            'text': 'You are meeting all your savings, budgeting, and investment targets. Keep up the excellent work!'
+        })
+
+    return recommendations
+
+
+def trigger_notification(user_id, title, message, type):
+    """
+    Creates and logs a notification in the database for the user.
+    Prevents exact duplicate notification spam on the same day.
+    """
+    today_start = datetime.datetime.combine(datetime.date.today(), datetime.time.min)
+    existing = Notification.query.filter(
+        Notification.user_id == user_id,
+        Notification.title == title,
+        Notification.message == message,
+        Notification.created_at >= today_start
+    ).first()
+    
+    if not existing:
+        notif = Notification(user_id=user_id, title=title, message=message, type=type)
+        db.session.add(notif)
+        db.session.commit()
+
+
+def check_budget_alerts(user, category_id, date_obj):
+    """
+    Checks if spending in the category for the month of date_obj has exceeded
+    80% or 100% of the set budget. Triggers a notification if so.
+    """
+    month_str = date_obj.strftime('%Y-%m')
+    budget = Budget.query.filter_by(user_id=user.id, category_id=category_id, month=month_str).first()
+    if not budget:
+        return
+
+    # Calculate actual spending for that category in that month
+    year, m = date_obj.year, date_obj.month
+    last_day = calendar.monthrange(year, m)[1]
+    start_date = datetime.date(year, m, 1)
+    end_date = datetime.date(year, m, last_day)
+
+    spent = db.session.query(db.func.sum(Transaction.amount)).filter(
+        Transaction.user_id == user.id,
+        Transaction.category_id == category_id,
+        Transaction.type == 'Expense',
+        Transaction.transaction_date >= start_date,
+        Transaction.transaction_date <= end_date
+    ).scalar() or 0.0
+
+    percentage = (spent / budget.amount) * 100
+    category = Category.query.get(category_id)
+    cat_name = category.name if category else "Others"
+
+    if percentage >= 100:
+        trigger_notification(
+            user_id=user.id,
+            title=f"Budget Exceeded: {cat_name}",
+            message=f"You have spent {user.currency} {spent:.2f} of your {user.currency} {budget.amount:.2f} budget for {cat_name} in {month_str}.",
+            type="Budget"
+        )
+    elif percentage >= 80:
+        trigger_notification(
+            user_id=user.id,
+            title=f"Budget Alert: {cat_name}",
+            message=f"You have used {percentage:.1f}% of your budget for {cat_name} in {month_str}. Spent: {user.currency} {spent:.2f} / {user.currency} {budget.amount:.2f}",
+            type="Budget"
+        )
+
+
 # --- DECORATORS & GLOBALS ---
+
 
 def login_required(f):
     """Decorator to protect routes from unauthenticated users."""
@@ -535,6 +880,7 @@ def add_transaction():
         )
         db.session.add(tx)
         db.session.commit()
+        check_budget_alerts(g.user, category.id, transaction_date)
         flash("Transaction recorded successfully!", "success")
 
     return redirect(url_for('expenses'))
@@ -591,6 +937,7 @@ def edit_transaction(tx_id):
         tx.description = description
         tx.payment_mode = payment_mode
         db.session.commit()
+        check_budget_alerts(g.user, category.id, transaction_date)
         flash("Transaction updated successfully!", "success")
 
     return redirect(url_for('expenses'))
@@ -770,7 +1117,74 @@ def profile():
             flash("Profile updated successfully!", "success")
             return redirect(url_for('profile'))
 
-    return render_template('profile.html')
+    cibil_scores = CibilScore.query.filter_by(user_id=g.user.id).order_by(CibilScore.recorded_date.asc()).all()
+    latest_cibil = CibilScore.query.filter_by(user_id=g.user.id).order_by(CibilScore.recorded_date.desc(), CibilScore.id.desc()).first()
+    
+    # Simple classification bands
+    cibil_band = None
+    cibil_color = "secondary"
+    if latest_cibil:
+        if latest_cibil.score >= 750:
+            cibil_band = "Excellent"
+            cibil_color = "success"
+        elif latest_cibil.score >= 700:
+            cibil_band = "Good"
+            cibil_color = "warning"
+        elif latest_cibil.score >= 550:
+            cibil_band = "Fair"
+            cibil_color = "info"
+        else:
+            cibil_band = "Poor"
+            cibil_color = "danger"
+
+    today_str = datetime.date.today().strftime('%Y-%m-%d')
+
+    return render_template(
+        'profile.html',
+        cibil_scores=cibil_scores,
+        latest_cibil=latest_cibil,
+        cibil_band=cibil_band,
+        cibil_color=cibil_color,
+        today_str=today_str
+    )
+
+
+@app.route('/profile/cibil', methods=['POST'])
+@login_required
+def add_cibil_score():
+    """Logs a self-reported CIBIL Credit Score (300-900)."""
+    score_str = request.form.get('score', '').strip()
+    date_str = request.form.get('recorded_date', '').strip()
+    notes = request.form.get('notes', '').strip()
+
+    errors = []
+    try:
+        score = int(score_str)
+        if score < 300 or score > 900:
+            errors.append("CIBIL score must be between 300 and 900.")
+    except ValueError:
+        errors.append("CIBIL score must be a valid integer.")
+
+    try:
+        recorded_date = datetime.datetime.strptime(date_str, '%Y-%m-%d').date()
+    except ValueError:
+        recorded_date = datetime.date.today()
+
+    if errors:
+        for error in errors:
+            flash(error, 'danger')
+    else:
+        cibil = CibilScore(
+            user_id=g.user.id,
+            score=score,
+            recorded_date=recorded_date,
+            notes=notes
+        )
+        db.session.add(cibil)
+        db.session.commit()
+        flash("CIBIL Credit Score logged successfully!", "success")
+
+    return redirect(url_for('profile'))
 
 
 # --- RECEIPT OCR ROUTES ---
@@ -896,6 +1310,7 @@ def confirm_receipt():
     )
     db.session.add(tx)
     db.session.commit()
+    check_budget_alerts(g.user, category.id, transaction_date)
     flash('Receipt transaction saved successfully!', 'success')
     return redirect(url_for('expenses'))
 
@@ -1254,6 +1669,12 @@ def add_goal_funds(goal_id):
     # Recalculate status
     if goal.current_amount >= goal.target_amount:
         goal.status = 'Completed'
+        trigger_notification(
+            user_id=g.user.id,
+            title=f"Goal Completed: {goal.goal_name}",
+            message=f"Congratulations! You have reached your target of {g.user.currency} {goal.target_amount:.2f} for '{goal.goal_name}'!",
+            type="Goal"
+        )
 
     db.session.commit()
     flash(f"Added {g.user.currency} {amount:.2f} toward '{goal.goal_name}'!", "success")
@@ -1271,5 +1692,199 @@ def delete_goal(goal_id):
     return redirect(url_for('goals'))
 
 
+# --- CONTEXT PROCESSOR FOR GLOBAL NOTIFICATIONS ---
+
+@app.context_processor
+def inject_notifications():
+    """Injects recent notifications and unread counts globally into all templates."""
+    if 'user_id' in session and g.user:
+        notifs = Notification.query.filter_by(user_id=g.user.id).order_by(Notification.created_at.desc()).limit(8).all()
+        unread_count = Notification.query.filter_by(user_id=g.user.id, is_read=False).count()
+        return dict(recent_notifications=notifs, unread_notifications_count=unread_count)
+    return dict(recent_notifications=[], unread_notifications_count=0)
+
+
+# --- ANALYTICS & NOTIFICATIONS ROUTES ---
+
+@app.route('/analytics')
+@login_required
+def analytics():
+    """Renders the Analytics page with trend charts, health scores, and notifications."""
+    today = datetime.date.today()
+    curr_month_str = today.strftime('%Y-%m')
+
+    # Get last 6 months
+    months_list = []
+    for i in range(5, -1, -1):
+        y = today.year
+        m = today.month - i
+        while m <= 0:
+            m += 12
+            y -= 1
+        months_list.append(f"{y:04d}-{m:02d}")
+
+    first_month = months_list[0]
+    last_month = months_list[-1]
+    
+    y_start, m_start = map(int, first_month.split('-'))
+    start_date = datetime.date(y_start, m_start, 1)
+    
+    y_end, m_end = map(int, last_month.split('-'))
+    last_day = calendar.monthrange(y_end, m_end)[1]
+    end_date = datetime.date(y_end, m_end, last_day)
+
+    # Query transaction history for trend analysis
+    txs = Transaction.query.filter(
+        Transaction.user_id == g.user.id,
+        Transaction.type == 'Expense',
+        Transaction.transaction_date >= start_date,
+        Transaction.transaction_date <= end_date
+    ).all()
+
+    # Get all categories
+    cat_names = sorted(list(set(t.category.name for t in txs if t.category)))
+    if not cat_names:
+        # Fallback to default user categories if no transaction exists
+        cats = Category.query.filter_by(user_id=g.user.id, type='Expense').all()
+        cat_names = sorted([c.name for c in cats])
+
+    # Structure data map
+    data_map = {c: {m: 0.0 for m in months_list} for c in cat_names}
+    for t in txs:
+        if t.category:
+            m_str = t.transaction_date.strftime('%Y-%m')
+            if m_str in data_map[t.category.name]:
+                data_map[t.category.name][m_str] += t.amount
+
+    # Formatting dataset for Chart.js
+    month_names_map = {1: 'Jan', 2: 'Feb', 3: 'Mar', 4: 'Apr', 5: 'May', 6: 'Jun', 
+                       7: 'Jul', 8: 'Aug', 9: 'Sep', 10: 'Oct', 11: 'Nov', 12: 'Dec'}
+    
+    chart_labels = []
+    for m in months_list:
+        y, mo = map(int, m.split('-'))
+        chart_labels.append(f"{month_names_map[mo]} {y}")
+
+    datasets = []
+    for c in cat_names:
+        datasets.append({
+            'label': c,
+            'data': [data_map[c][m] for m in months_list]
+        })
+
+    # Category Month-over-Month change calculations
+    prev_month_str = months_list[-2]
+    curr_month_str = months_list[-1]
+    
+    trends = []
+    for c in cat_names:
+        prev_val = data_map[c][prev_month_str]
+        curr_val = data_map[c][curr_month_str]
+        
+        if prev_val > 0:
+            pct_change = ((curr_val - prev_val) / prev_val) * 100
+        elif curr_val > 0:
+            pct_change = 100.0
+        else:
+            pct_change = 0.0
+            
+        trends.append({
+            'category_name': c,
+            'prev_val': prev_val,
+            'curr_val': curr_val,
+            'change': round(pct_change, 1),
+            'direction': 'up' if pct_change > 0 else 'down' if pct_change < 0 else 'none'
+        })
+
+    # Financial Health Score & Recommendations
+    health_data = calculate_health_score(g.user, curr_month_str)
+    recommendations = generate_recommendations(g.user, health_data)
+
+    # Check for automatic notifications (investment target rate)
+    inv_rate = health_data['factors']['investment_activity']['value']
+    if inv_rate < 0.10:
+        trigger_notification(
+            user_id=g.user.id,
+            title="Investment Target Alert",
+            message=f"Your investment allocation for this month ({round(inv_rate*100)}%) is notably below the target rate of 15%. Consider adding to your portfolio.",
+            type="Investment"
+        )
+
+    return render_template(
+        'analytics.html',
+        chart_labels=chart_labels,
+        datasets=datasets,
+        trends=trends,
+        health=health_data,
+        recommendations=recommendations,
+        current_month_name=today.strftime('%B %Y')
+    )
+
+
+@app.route('/notifications/read/<int:notif_id>', methods=['POST'])
+@login_required
+def mark_notification_read(notif_id):
+    """Marks a notification as read and returns a success payload."""
+    notif = Notification.query.filter_by(id=notif_id, user_id=g.user.id).first_or_404()
+    notif.is_read = True
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/notifications/read-all', methods=['POST'])
+@login_required
+def mark_all_notifications_read():
+    """Marks all unread notifications of the current user as read."""
+    unread_notifs = Notification.query.filter_by(user_id=g.user.id, is_read=False).all()
+    for notif in unread_notifs:
+        notif.is_read = True
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/analytics/generate-summary', methods=['POST'])
+@login_required
+def generate_monthly_summary():
+    """Triggers the generation of a monthly summary notification for the current month."""
+    today = datetime.date.today()
+    month_str = today.strftime('%Y-%m')
+    month_name = today.strftime('%B %Y')
+
+    # Calculate current month stats
+    health_data = calculate_health_score(g.user, month_str)
+    
+    start_date = datetime.date(today.year, today.month, 1)
+    last_day = calendar.monthrange(today.year, today.month)[1]
+    end_date = datetime.date(today.year, today.month, last_day)
+
+    monthly_txs = Transaction.query.filter(
+        Transaction.user_id == g.user.id,
+        Transaction.transaction_date >= start_date,
+        Transaction.transaction_date <= end_date
+    ).all()
+
+    income = sum(tx.amount for tx in monthly_txs if tx.type == 'Income')
+    expenses = sum(tx.amount for tx in monthly_txs if tx.type == 'Expense')
+    savings_rate_val = health_data['factors']['savings_rate']['value']
+    health_score = health_data['overall_score']
+
+    message = (f"Summary for {month_name}: "
+               f"Total Income: {g.user.currency} {income:.2f}, "
+               f"Total Expenses: {g.user.currency} {expenses:.2f}, "
+               f"Savings Rate: {round(savings_rate_val * 100)}%, "
+               f"Financial Health Score: {health_score}/100 ({health_data['label']}).")
+
+    trigger_notification(
+        user_id=g.user.id,
+        title=f"Monthly Summary - {month_name}",
+        message=message,
+        type="System"
+    )
+
+    flash("Monthly summary generated successfully! Check your notifications.", "success")
+    return redirect(url_for('analytics'))
+
+
 if __name__ == '__main__':
     app.run(debug=True, host='127.0.0.1', port=5000)
+

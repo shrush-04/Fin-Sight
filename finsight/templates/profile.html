@@ -3,10 +3,11 @@
 {% block title %}Profile Settings - FinSight{% endblock %}
 
 {% block header_title %}Profile Settings{% endblock %}
-{% block header_subtitle %}Manage your personal details and currency settings{% endblock %}
+{% block header_subtitle %}Manage your personal details and self-reported credit score{% endblock %}
 
 {% block content %}
-<div class="profile-container animate-fade-in-up">
+<div class="profile-layout grid-2 animate-fade-in-up">
+    <!-- Left Column: User Personal Info Settings -->
     <div class="card profile-card">
         <div class="profile-header-summary">
             <div class="profile-avatar-large">
@@ -59,5 +60,159 @@
             </div>
         </form>
     </div>
+
+    <!-- Right Column: self-reported CIBIL Credit Score Tracking -->
+    <div class="card credit-score-card">
+        <h2>CIBIL Credit Score</h2>
+        
+        {% if latest_cibil %}
+        <!-- Current Score Gauge -->
+        <div class="cibil-gauge-wrapper">
+            <div class="cibil-display">
+                <div class="cibil-score text-{{ cibil_color }}">{{ latest_cibil.score }}</div>
+                <div class="cibil-band-label text-{{ cibil_color }}">{{ cibil_band }}</div>
+            </div>
+            
+            <div class="cibil-meter">
+                <div class="cibil-marker" style="left: calc(({{ latest_cibil.score }} - 300) / 600 * 100%);">
+                    <i class="fa-solid fa-caret-down"></i>
+                </div>
+                <div class="cibil-gradient-bar">
+                    <span class="bar-segment poor" style="flex: 250;"></span>
+                    <span class="bar-segment fair" style="flex: 150;"></span>
+                    <span class="bar-segment good" style="flex: 50;"></span>
+                    <span class="bar-segment excellent" style="flex: 150;"></span>
+                </div>
+                <div class="cibil-ticks flex-between text-secondary">
+                    <span>300</span>
+                    <span>550</span>
+                    <span>700</span>
+                    <span>750</span>
+                    <span>900</span>
+                </div>
+            </div>
+            
+            {% if latest_cibil.notes %}
+            <p class="cibil-notes small text-secondary"><strong>Note:</strong> "{{ latest_cibil.notes }}"</p>
+            {% endif %}
+        </div>
+        
+        <!-- Score Trend Chart (if multiple entries logged) -->
+        {% if cibil_scores|length > 1 %}
+        <div class="cibil-chart-section">
+            <h3>Score History</h3>
+            <div class="chart-container" style="position: relative; height: 160px; margin-bottom: 16px;">
+                <canvas id="cibilTrendChart"></canvas>
+            </div>
+        </div>
+        {% endif %}
+        
+        {% else %}
+        <div class="cibil-empty">
+            <i class="fa-solid fa-credit-card text-secondary"></i>
+            <p>No credit score logged yet. Tracking credit health helps fine-tune your financial metrics.</p>
+        </div>
+        {% endif %}
+
+        <hr class="divider">
+
+        <!-- Add Cibil score Form -->
+        <div class="cibil-form-section">
+            <h3>Log CIBIL Credit Score</h3>
+            <p class="explainer-text text-secondary">
+                CIBIL score is self-reported. Check yours for free at 
+                <a href="https://www.cibil.com" target="_blank">cibil.com</a> or your banking app, then log it here.
+            </p>
+            
+            <form method="POST" action="{{ url_for('add_cibil_score') }}" class="cibil-form mt-2">
+                <div class="form-row">
+                    <div class="form-group col-6">
+                        <label for="cibil_score_input">Score Value (300 - 900)</label>
+                        <div class="input-wrapper">
+                            <i class="fa-solid fa-gauge-high input-icon"></i>
+                            <input type="number" id="cibil_score_input" name="score" required min="300" max="900" placeholder="e.g. 750">
+                        </div>
+                    </div>
+                    
+                    <div class="form-group col-6">
+                        <label for="cibil_date_input">Date Checked</label>
+                        <div class="input-wrapper">
+                            <i class="fa-regular fa-calendar input-icon"></i>
+                            <input type="date" id="cibil_date_input" name="recorded_date" value="{{ today_str }}" required>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="cibil_notes_input">Optional Note</label>
+                    <div class="input-wrapper">
+                        <i class="fa-regular fa-comment input-icon"></i>
+                        <input type="text" id="cibil_notes_input" name="notes" placeholder="e.g. Checked via Paytm app">
+                    </div>
+                </div>
+                
+                <div class="form-actions text-right">
+                    <button type="submit" class="btn btn-secondary">Log Score Entry</button>
+                </div>
+            </form>
+        </div>
+    </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+{% if latest_cibil and cibil_scores|length > 1 %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    document.addEventListener("DOMContentLoaded", () => {
+        const ctx = document.getElementById('cibilTrendChart').getContext('2d');
+        const labels = [{% for s in cibil_scores %}"{{ s.recorded_date.strftime('%b %d, %y') }}"{% if not loop.last %}, {% endif %}{% endfor %}];
+        const data = [{% for s in cibil_scores %}{{ s.score }}{% if not loop.last %}, {% endif %}{% endfor %}];
+
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'CIBIL Score',
+                    data: data,
+                    borderColor: '#D97757',
+                    backgroundColor: 'rgba(217, 119, 87, 0.05)',
+                    fill: true,
+                    tension: 0.25,
+                    borderWidth: 2,
+                    pointRadius: 3,
+                    pointHoverRadius: 5,
+                    pointBackgroundColor: '#D97757'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        padding: 8,
+                        cornerRadius: 4,
+                        titleFont: { family: 'Inter', size: 11 },
+                        bodyFont: { family: 'Inter', size: 11 }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { display: false },
+                        ticks: { font: { family: 'Inter', size: 9 }, color: '#787572' }
+                    },
+                    y: {
+                        min: 300,
+                        max: 900,
+                        grid: { color: '#EAE7E2' },
+                        ticks: { font: { family: 'Inter', size: 9 }, color: '#787572', stepSize: 150 }
+                    }
+                }
+            }
+        });
+    });
+</script>
+{% endif %}
 {% endblock %}

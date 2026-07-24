@@ -1,0 +1,323 @@
+{% extends 'base.html' %}
+
+{% block title %}Analytics - FinSight{% endblock %}
+
+{% block header_title %}Financial Analytics{% endblock %}
+{% block header_subtitle %}Insights, health score, and spending patterns for {{ current_month_name }}{% endblock %}
+
+{% block content %}
+<div class="analytics-grid">
+    <!-- Health Score & Contributing Factors -->
+    <div class="card health-card animate-fade-in">
+        <div class="card-header flex-between">
+            <h2>Financial Health Score</h2>
+            <form action="{{ url_for('generate_monthly_summary') }}" method="POST" style="margin: 0;">
+                <button type="submit" class="btn btn-secondary btn-sm">
+                    <i class="fa-solid fa-file-contract"></i> Generate Monthly Summary
+                </button>
+            </form>
+        </div>
+        
+        <div class="health-body">
+            <div class="health-ring-wrapper">
+                <div class="ring-container">
+                    <svg class="progress-ring" width="160" height="160">
+                        <circle class="progress-ring__background" stroke="var(--border-color)" stroke-width="12" fill="transparent" r="70" cx="80" cy="80" />
+                        <circle class="progress-ring__circle text-{{ health.color_class }}" stroke="currentColor" stroke-width="12" fill="transparent" r="70" cx="80" cy="80" 
+                                style="stroke-dasharray: 439.82; stroke-dashoffset: 439.82;"
+                                data-score="{{ health.overall_score }}" />
+                    </svg>
+                    <div class="ring-label-wrapper">
+                        <span class="ring-score" id="ringScore">0</span>
+                        <span class="ring-status text-{{ health.color_class }}">{{ health.label }}</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="health-factors">
+                <div class="factor-item">
+                    <div class="factor-meta flex-between">
+                        <span>Savings Rate ({{ health.factors.savings_rate.max_points }}%)</span>
+                        <span class="factor-score">{{ health.factors.savings_rate.score }}/{{ health.factors.savings_rate.max_points }}</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-bar-fill progress-{{ health.color_class }}" style="width: {{ health.factors.savings_rate.percent }}%"></div>
+                    </div>
+                    <small class="factor-desc text-secondary">
+                        Savings: {{ (health.factors.savings_rate.value * 100) | round | int }}% of income (Target: 20%)
+                    </small>
+                </div>
+                
+                <div class="factor-item">
+                    <div class="factor-meta flex-between">
+                        <span>Category Budgets ({{ health.factors.budget_discipline.max_points }}%)</span>
+                        <span class="factor-score">{{ health.factors.budget_discipline.score }}/{{ health.factors.budget_discipline.max_points }}</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-bar-fill progress-{{ health.color_class }}" style="width: {{ health.factors.budget_discipline.percent }}%"></div>
+                    </div>
+                    <small class="factor-desc text-secondary">
+                        Discipline across categories staying within budget limits
+                    </small>
+                </div>
+                
+                <div class="factor-item">
+                    <div class="factor-meta flex-between">
+                        <span>Investments ({{ health.factors.investment_activity.max_points }}%)</span>
+                        <span class="factor-score">{{ health.factors.investment_activity.score }}/{{ health.factors.investment_activity.max_points }}</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-bar-fill progress-{{ health.color_class }}" style="width: {{ health.factors.investment_activity.percent }}%"></div>
+                    </div>
+                    <small class="factor-desc text-secondary">
+                        Investment Allocation: {{ (health.factors.investment_activity.value * 100) | round | int }}% of income (Target: 15%)
+                    </small>
+                </div>
+                
+                <div class="factor-item">
+                    <div class="factor-meta flex-between">
+                        <span>Overall Budget Adherence ({{ health.factors.budget_adherence.max_points }}%)</span>
+                        <span class="factor-score">{{ health.factors.budget_adherence.score }}/{{ health.factors.budget_adherence.max_points }}</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-bar-fill progress-{{ health.color_class }}" style="width: {{ health.factors.budget_adherence.percent }}%"></div>
+                    </div>
+                    <small class="factor-desc text-secondary">
+                        Total spent: {{ g.user.currency }} {{ "{:,.2f}".format(health.factors.budget_adherence.total_spent) }} / {{ g.user.currency }} {{ "{:,.2f}".format(health.factors.budget_adherence.total_budget) }} budgeted
+                    </small>
+                </div>
+
+                {% if health.factors.cibil_score %}
+                <div class="factor-item">
+                    <div class="factor-meta flex-between">
+                        <span>CIBIL Credit Score ({{ health.factors.cibil_score.max_points }}%)</span>
+                        <span class="factor-score">{{ health.factors.cibil_score.score }}/{{ health.factors.cibil_score.max_points }}</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-bar-fill progress-{{ health.color_class }}" style="width: {{ health.factors.cibil_score.percent }}%"></div>
+                    </div>
+                    <small class="factor-desc text-secondary">
+                        CIBIL Score: {{ health.factors.cibil_score.value }} (Self-reported, Range: 300-900)
+                    </small>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Recommendations Card List -->
+    <div class="card recommendations-card animate-fade-in">
+        <h2>Personalized Recommendations</h2>
+        <div class="recommendations-list">
+            {% for rec in recommendations %}
+            <div class="recommendation-item border-left-{{ rec.class }}" style="--stagger-index: {{ loop.index }}">
+                <div class="rec-icon text-{{ rec.class }}">
+                    <i class="{{ rec.icon }}"></i>
+                </div>
+                <div class="rec-content">
+                    <h3 class="rec-title">{{ rec.title }}</h3>
+                    <p class="rec-text">{{ rec.text }}</p>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<div class="analytics-trends-row">
+    <!-- Spending Pattern Chart -->
+    <div class="card chart-card animate-fade-in">
+        <h2>Spending Trend (Last 6 Months)</h2>
+        <div class="chart-container" style="position: relative; height: 350px;">
+            <canvas id="spendingTrendChart"></canvas>
+        </div>
+    </div>
+
+    <!-- MoM Changes Breakdown -->
+    <div class="card trends-breakdown-card animate-fade-in">
+        <h2>Month-over-Month Category Changes</h2>
+        <div class="trends-list">
+            {% if trends %}
+                {% for trend in trends %}
+                <div class="trend-row flex-between">
+                    <div class="trend-cat-name">
+                        <i class="fa-solid fa-folder text-secondary"></i> <strong>{{ trend.category_name }}</strong>
+                    </div>
+                    <div class="trend-values text-right">
+                        <div>
+                            <span class="text-secondary small">{{ g.user.currency }} {{ "{:,.2f}".format(trend.prev_val) }}</span>
+                            <i class="fa-solid fa-arrow-right text-secondary mx-1"></i>
+                            <strong>{{ g.user.currency }} {{ "{:,.2f}".format(trend.curr_val) }}</strong>
+                        </div>
+                        <div class="trend-badge-wrapper mt-1">
+                            {% if trend.direction == 'up' %}
+                            <span class="trend-badge badge-danger">
+                                <i class="fa-solid fa-arrow-trend-up"></i> +{{ trend.change }}%
+                            </span>
+                            {% elif trend.direction == 'down' %}
+                            <span class="trend-badge badge-success">
+                                <i class="fa-solid fa-arrow-trend-down"></i> {{ trend.change }}%
+                            </span>
+                            {% else %}
+                            <span class="trend-badge badge-secondary">
+                                <i class="fa-solid fa-minus"></i> No change
+                            </span>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <p class="text-secondary">No transaction data available yet to display trends.</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<!-- Load Chart.js CDN -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    document.addEventListener("DOMContentLoaded", () => {
+        // --- Circular Progress Animation ---
+        const circle = document.querySelector('.progress-ring__circle');
+        if (circle) {
+            const score = parseInt(circle.dataset.score) || 0;
+            const radius = circle.r.baseVal.value;
+            const circumference = 2 * Math.PI * radius;
+            const offset = circumference - (score / 100) * circumference;
+            
+            // Animate stroke-dashoffset
+            setTimeout(() => {
+                circle.style.transition = 'stroke-dashoffset 1.5s cubic-bezier(0.4, 0, 0.2, 1)';
+                circle.style.strokeDashoffset = offset;
+            }, 200);
+
+            // Animate count-up text
+            const scoreText = document.getElementById('ringScore');
+            let current = 0;
+            const duration = 1500; // ms
+            const stepTime = Math.abs(Math.floor(duration / score)) || 30;
+            
+            if (score > 0) {
+                const timer = setInterval(() => {
+                    current += 1;
+                    if (scoreText) scoreText.textContent = current;
+                    if (current >= score) {
+                        clearInterval(timer);
+                    }
+                }, stepTime);
+            } else {
+                if (scoreText) scoreText.textContent = "0";
+            }
+        }
+
+        // --- Chart.js Data and Configuration ---
+        const ctx = document.getElementById('spendingTrendChart').getContext('2d');
+        const labels = {{ chart_labels | tojson }};
+        const datasetsRaw = {{ datasets | tojson }};
+
+        // Standard palette tailored for FinSight design accents
+        const colors = [
+            '#D97757', // Accent (Terracotta)
+            '#5F8F66', // Success (Muted green)
+            '#D99543', // Warning (Muted gold)
+            '#C05643', // Danger (Muted crimson)
+            '#4F6D7A', // Muted Slate Blue
+            '#8F5D88', // Muted Purple
+            '#787572'  // Calm grey
+        ];
+
+        const datasets = datasetsRaw.map((ds, idx) => {
+            const color = colors[idx % colors.length];
+            return {
+                label: ds.label,
+                data: ds.data,
+                backgroundColor: color + 'CC', // 80% opacity
+                borderColor: color,
+                borderWidth: 1.5,
+                borderRadius: 4,
+                hoverBackgroundColor: color
+            };
+        });
+
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: datasets
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: {
+                            font: {
+                                family: 'Inter',
+                                size: 12
+                            },
+                            color: '#2C2A29',
+                            usePointStyle: true,
+                            padding: 15
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: '#FFFFFF',
+                        titleColor: '#2C2A29',
+                        bodyColor: '#595653',
+                        borderColor: '#EAE7E2',
+                        borderWidth: 1,
+                        padding: 12,
+                        titleFont: {
+                            family: 'Inter',
+                            weight: '600'
+                        },
+                        bodyFont: {
+                            family: 'Inter'
+                        },
+                        shadowColor: 'rgba(0, 0, 0, 0.05)',
+                        shadowBlur: 10,
+                        callbacks: {
+                            label: function(context) {
+                                return ` ${context.dataset.label}: {{ g.user.currency }} ${context.parsed.y.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: {
+                            display: false
+                        },
+                        ticks: {
+                            font: {
+                                family: 'Inter',
+                                size: 11
+                            },
+                            color: '#787572'
+                        }
+                    },
+                    y: {
+                        grid: {
+                            color: '#EAE7E2'
+                        },
+                        ticks: {
+                            font: {
+                                family: 'Inter',
+                                size: 11
+                            },
+                            color: '#787572',
+                            callback: function(value) {
+                                return '{{ g.user.currency }} ' + value.toLocaleString();
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    });
+</script>
+{% endblock %}

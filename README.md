@@ -144,3 +144,55 @@ After installing, verify with:
 
 If Tesseract is not installed, the "Upload Receipt" button will still
 appear but will return a clear error message rather than crashing the app.
+
+
+---
+
+Milestone 3 Features
+────────────────────
+
+1. Spending Pattern Analysis (/analytics)
+   - Fetches and groups transaction history for the last 3-6 months.
+   - Interactive, grouped-bar chart powered by Chart.js displaying category-wise monthly trends.
+   - Identifies and highlights month-over-month category budget increases or decreases via color-coded badges on the Analytics dashboard.
+
+2. Financial Health Score (0-100)
+   Evaluates user financial stability across 4 weighted factors (25% each):
+   - **Savings Rate (25%)**: Calculates `(Income - Expenses) / Income` for the current month. Earns full points (25) if >= 20%; scales down linearly otherwise.
+   - **Category Budget Discipline (25%)**: Assesses adherence to set category budgets. Calculates the overrun ratio for each budget and averages them.
+   - **Investment Activity (25%)**: Assesses the portfolio state. Grants a base score of 10 points for having active investments, and up to 15 points based on the current month's investment rate (target 15% of income).
+   - **Overall Budget Adherence (25%)**: Compares total spending against total monthly budgeted amount, penalizing overruns linearly.
+   
+   Visualized as an animated circular ring progress indicator labeled as:
+   - 80 - 100: **Excellent** (Success color)
+   - 60 - 79: **Good** (Info/slate blue color)
+   - 40 - 59: **Needs Attention** (Warning color)
+   - Below 40: **At Risk** (Danger color)
+
+3. Personalized Recommendations
+   Generates real-time, rule-based recommendations:
+   - Over-budget categories: Advises a specific percentage cut.
+   - Discretionary spend: If Food, Entertainment, and Others exceed 40% of total spend, suggests a 15% cut.
+   - Low savings rate: If below 20%, warns the user and suggests budget revisions.
+   - Low investment rate: If below 15%, calculates the specific shortfall amount and recommends increasing contributions.
+
+4. Alert & Notification System
+   Adds a `Notification` model to store persistent alerts (Budget, Investment, Goal, System). Automatically triggered on:
+   - Category budget exceeding 80% utilization (Warning) or 100% utilization (Exceeded).
+   - Financial Goal successfully completed.
+   - Investment allocation falling notably below 10% target rate.
+   - Manual generation of Monthly Summary via the "Generate Monthly Summary" button.
+   Includes a notification bell in the navigation bar with an unread badge and dropdown list for quick inspection. Clicking a notification marks it read asynchronously.
+
+5. Self-Reported CIBIL Score Tracking (/profile)
+   - **Manual Bureau Entry**: Since live credit bureau integration is restricted by TransUnion CIBIL/RBI regulations to licensed lending institutions, this feature allows users to self-report and update their credit score (300-900 range).
+   - **Meter/Gauge Display**: Renders the latest score in a color-coded horizontal linear scale:
+     - 300 - 549: **Poor** (Red)
+     - 550 - 699: **Fair** (Orange/Amber)
+     - 700 - 749: **Good** (Yellow)
+     - 750 - 900: **Excellent** (Green)
+   - **Historical Charting**: Plots credit score trends over time if multiple score updates are logged by the user.
+   - **Health Score Rebalancing**:
+     - If the user has logged at least one CIBIL score, the Financial Health Score dynamically scales to include it as a 5th factor. Each factor contributes up to 20% (Savings Rate, Budget Discipline, Investment Activity, Overall Budget Adherence, CIBIL score).
+     - The 300-900 score range is normalized to a 0-100 score value: `cibil_normalized = ((score - 300) / 600) * 100` before contributing to the health score.
+     - If no CIBIL score is logged, the system gracefully falls back to the original 4-factor configuration (25% weight each) without penalizing the user.
